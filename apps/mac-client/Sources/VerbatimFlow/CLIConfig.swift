@@ -13,8 +13,8 @@ struct Hotkey {
 
     static let `default` = Hotkey(
         keyCode: 49, // space
-        modifiers: [.command, .option],
-        display: "cmd+opt+space"
+        modifiers: [.control, .shift],
+        display: "ctrl+shift+space"
     )
 }
 
@@ -129,12 +129,12 @@ enum HelpPrinter {
             "verbatim-flow",
             "",
             "Usage:",
-            "  verbatim-flow [--mode raw|format-only] [--locale <id>] [--hotkey cmd+opt+space] [--require-on-device] [--dry-run]",
+            "  verbatim-flow [--mode raw|format-only] [--locale <id>] [--hotkey ctrl+shift+space] [--require-on-device] [--dry-run]",
             "",
             "Defaults:",
             "  --mode raw",
             "  --locale system locale",
-            "  --hotkey cmd+opt+space",
+            "  --hotkey ctrl+shift+space",
             ""
         ]
         FileHandle.standardOutput.write(lines.joined(separator: "\n").data(using: .utf8)!)
@@ -150,7 +150,7 @@ enum HotkeyParser {
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
 
         guard let keyToken = components.last, !keyToken.isEmpty else {
-            throw ConfigError.invalidValue("--hotkey", "like cmd+opt+space")
+            throw ConfigError.invalidValue("--hotkey", "like ctrl+shift+space")
         }
 
         var modifiers: NSEvent.ModifierFlags = []
@@ -187,7 +187,7 @@ enum HotkeyParser {
             "n": 45, "m": 46, ".": 47, "`": 50
         ]
 
-        if key == "space" {
+        if key == "space" || key == "spacebar" {
             return 49
         }
 

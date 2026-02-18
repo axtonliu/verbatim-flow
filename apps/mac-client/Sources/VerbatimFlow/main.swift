@@ -6,8 +6,10 @@ do {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
 
-    let controller = AppController(config: config)
-    controller.run()
+    Task { @MainActor in
+        let controller = AppController(config: config)
+        controller.run()
+    }
 
     RunLoop.main.run()
 } catch {

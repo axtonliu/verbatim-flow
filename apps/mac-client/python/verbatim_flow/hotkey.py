@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Set, Tuple
+from typing import Callable, Set
 
 from pynput import keyboard
 
@@ -12,20 +12,46 @@ class HotkeySpec:
     key: str
 
 
+_MODIFIER_ALIASES = {
+    "cmd": "cmd",
+    "command": "cmd",
+    "⌘": "cmd",
+    "opt": "opt",
+    "option": "opt",
+    "alt": "opt",
+    "⌥": "opt",
+    "ctrl": "ctrl",
+    "control": "ctrl",
+    "⌃": "ctrl",
+    "shift": "shift",
+    "⇧": "shift",
+}
+
+_KEY_ALIASES = {
+    "spacebar": "space",
+}
+
+
 def parse_hotkey(combo: str) -> HotkeySpec:
     parts = [p.strip().lower() for p in combo.split("+") if p.strip()]
     if len(parts) < 2:
         raise ValueError("hotkey must include modifiers and a key, e.g. ctrl+shift+space")
 
-    key = parts[-1]
-    modifiers = frozenset(parts[:-1])
+    key = _KEY_ALIASES.get(parts[-1], parts[-1])
+    modifiers: set[str] = set()
+    unsupported: list[str] = []
+    for mod in parts[:-1]:
+        canonical = _MODIFIER_ALIASES.get(mod)
+        if canonical is None:
+            unsupported.append(mod)
+            continue
+        modifiers.add(canonical)
 
-    allowed_mods = {"cmd", "opt", "alt", "ctrl", "shift"}
-    if not modifiers.issubset(allowed_mods):
-        bad = ", ".join(sorted(modifiers - allowed_mods))
+    if unsupported:
+        bad = ", ".join(sorted(unsupported))
         raise ValueError(f"unsupported modifiers: {bad}")
 
-    return HotkeySpec(modifiers=modifiers, key=key)
+    return HotkeySpec(modifiers=frozenset(modifiers), key=key)
 
 
 def _normalize_key(key_obj: keyboard.Key | keyboard.KeyCode) -> str | None:

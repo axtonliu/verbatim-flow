@@ -27,6 +27,10 @@ Build a controllable dictation stack that can rival tools like Typeless/Wispr in
 **Decision**: If requested compute type (e.g. `int8_float16`) is unsupported by local backend, automatically fall back to `int8`.
 **Reason**: Keep dictation flow available without manual restarts or flag changes when hardware/backend constraints vary.
 
+### [Native Swift path re-enabled] (2026-02-18)
+**Decision**: Continue native AppCore development under `apps/mac-client` in parallel with Python MVP.
+**Reason**: After installing full Xcode, AppKit compilation and Swift package build/test are now working again.
+
 ## Next implementation target
 - Implement a minimal vertical slice:
   - push-to-talk hotkey
