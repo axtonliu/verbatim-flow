@@ -7,8 +7,11 @@ do {
     app.setActivationPolicy(.accessory)
 
     Task { @MainActor in
-        let controller = AppController(config: config)
-        controller.run()
+        let delegate = MenuBarApp(config: config)
+        app.delegate = delegate
+        withExtendedLifetime(delegate) {
+            app.run()
+        }
     }
 
     RunLoop.main.run()

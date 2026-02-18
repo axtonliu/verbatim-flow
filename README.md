@@ -36,3 +36,8 @@ Native AppCore run:
 cd "/Users/axton/Documents/DailyWork🌴/Project Files/Code Projects/verbatim-flow"
 ./scripts/run-native-mac-client.sh --mode raw --hotkey ctrl+shift+space
 ```
+
+Native app launches as a menu bar item (`VF`) with controls for:
+- pause/resume hotkey listener
+- switching `Raw` / `Format-only` mode
+- opening permission settings
