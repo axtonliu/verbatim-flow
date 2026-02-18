@@ -43,6 +43,10 @@ Build a controllable dictation stack that can rival tools like Typeless/Wispr in
 **Decision**: Add in-app menu actions for requesting speech/microphone permission and switching hotkey presets at runtime.
 **Reason**: macOS microphone permissions cannot always be manually inserted before first request, and hotkey changes should not require relaunch with CLI flags.
 
+### [Persisted controls + transcript rollback] (2026-02-18)
+**Decision**: Persist `mode`, `hotkey`, and `language` with `UserDefaults`; add status bar recent transcript history and a one-click `Copy + Undo Last Insert` action.
+**Reason**: Users need stable preferences across restarts and a fast recovery path when a transcript should be reverted.
+
 ## Next implementation target
 - Implement a minimal vertical slice:
   - push-to-talk hotkey

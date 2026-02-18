@@ -9,9 +9,10 @@ enum RuntimeState: Equatable {
 
 @MainActor
 final class AppController {
-    let localeIdentifier: String
+    private(set) var localeIdentifier: String
 
-    private let transcriber: SpeechTranscriber
+    private let requireOnDeviceRecognition: Bool
+    private var transcriber: SpeechTranscriber
     private let injector = TextInjector()
     private var hotkey: Hotkey
     private let dryRun: Bool
@@ -27,9 +28,11 @@ final class AppController {
 
     var onStateChanged: ((RuntimeState) -> Void)?
     var onLog: ((String) -> Void)?
+    var onTranscriptCommitted: ((String) -> Void)?
 
     init(config: CLIConfig) {
         self.localeIdentifier = config.localeIdentifier
+        self.requireOnDeviceRecognition = config.requireOnDeviceRecognition
         self.hotkey = config.hotkey
         self.mode = config.mode
         self.dryRun = config.dryRun
@@ -45,6 +48,10 @@ final class AppController {
 
     var currentHotkeyDisplay: String {
         hotkey.display
+    }
+
+    var currentLocaleIdentifier: String {
+        localeIdentifier
     }
 
     var isRunning: Bool {
@@ -100,6 +107,11 @@ final class AppController {
         }
     }
 
+    func setMode(_ mode: OutputMode) {
+        self.mode = mode
+        emit("[config] mode set to \(mode.rawValue)")
+    }
+
     func setHotkey(_ hotkey: Hotkey) {
         let sameHotkey = self.hotkey.keyCode == hotkey.keyCode &&
             self.hotkey.modifiers == hotkey.modifiers
@@ -120,6 +132,51 @@ final class AppController {
         }
     }
 
+    func setLocaleIdentifier(_ localeIdentifier: String) {
+        guard self.localeIdentifier != localeIdentifier else {
+            return
+        }
+
+        guard !isRecording else {
+            emit("[warn] stop recording before changing language")
+            return
+        }
+
+        self.localeIdentifier = localeIdentifier
+        self.transcriber = SpeechTranscriber(
+            localeIdentifier: localeIdentifier,
+            requireOnDeviceRecognition: requireOnDeviceRecognition
+        )
+        emit("[config] language set to \(localeIdentifier)")
+    }
+
+    func copyTranscriptToClipboard(_ text: String) {
+        guard !text.isEmpty else {
+            emit("[warn] nothing to copy")
+            return
+        }
+        injector.copyToClipboard(text: text)
+        emit("[clipboard] transcript copied")
+    }
+
+    func copyAndUndoLastInsert(_ text: String) {
+        guard !text.isEmpty else {
+            emit("[warn] nothing to rollback")
+            return
+        }
+
+        injector.copyToClipboard(text: text)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+            guard let self else { return }
+            do {
+                try self.injector.undoLastInsert()
+                self.emit("[rollback] copied transcript and sent undo")
+            } catch {
+                self.emit("[error] rollback failed: \(error)")
+            }
+        }
+    }
+
     private func stopInternal(emitLog: Bool) {
         hotkeyMonitor = nil
 
@@ -134,11 +191,6 @@ final class AppController {
         if emitLog {
             emit("[stopped] Hotkey listener paused")
         }
-    }
-
-    func setMode(_ mode: OutputMode) {
-        self.mode = mode
-        emit("[config] mode set to \(mode.rawValue)")
     }
 
     private func handleHotkeyPressed() async {
@@ -184,6 +236,8 @@ final class AppController {
             runtimeState = .ready
             return
         }
+
+        onTranscriptCommitted?(guarded.text)
 
         if guarded.fellBackToRaw {
             emit("[guard] Format-only attempt changed semantics. Fallback to raw.")

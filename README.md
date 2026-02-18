@@ -40,9 +40,14 @@ cd "/Users/axton/Documents/DailyWork🌴/Project Files/Code Projects/verbatim-fl
 Native app launches as a menu bar item (`VF`) with controls for:
 - pause/resume hotkey listener
 - switching `Raw` / `Format-only` mode
+- switching language (`System Default` / `zh-Hans` / `en-US`)
 - requesting microphone/speech permission
 - changing hotkey preset in-app
+- viewing recent transcript history
+- one-click `Copy + Undo Last Insert` rollback
 - opening permission settings
+
+`Mode`, `Hotkey`, and `Language` selections persist across restarts.
 
 Build double-clickable app bundle:
 ```bash
