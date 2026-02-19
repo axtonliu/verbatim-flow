@@ -43,8 +43,6 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
-  <key>LSUIElement</key>
-  <true/>
   <key>NSMicrophoneUsageDescription</key>
   <string>VerbatimFlow needs microphone access for speech transcription.</string>
   <key>NSSpeechRecognitionUsageDescription</key>

@@ -119,6 +119,12 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         keyEquivalent: ""
     )
 
+    private lazy var openLogsItem = NSMenuItem(
+        title: "Open VerbatimFlow Logs",
+        action: #selector(openLogsFolder),
+        keyEquivalent: ""
+    )
+
     private lazy var quitItem = NSMenuItem(
         title: "Quit VerbatimFlow",
         action: #selector(quitApp),
@@ -226,6 +232,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         openMicItem.target = self
         openSpeechItem.target = self
         openInputMonitoringItem.target = self
+        openLogsItem.target = self
 
         quitItem.target = self
 
@@ -247,6 +254,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         menu.addItem(openInputMonitoringItem)
         menu.addItem(openMicItem)
         menu.addItem(openSpeechItem)
+        menu.addItem(openLogsItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(quitItem)
     }
@@ -529,6 +537,20 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func openSystemSettings(url: String) {
         guard let target = URL(string: url) else { return }
         NSWorkspace.shared.open(target)
+    }
+
+    @objc
+    private func openLogsFolder() {
+        let logFile = RuntimeLogger.logFileURL
+        let directory = logFile.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+
+        if FileManager.default.fileExists(atPath: logFile.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([logFile])
+            return
+        }
+
+        NSWorkspace.shared.open(directory)
     }
 
     private func elevateForPermissionPromptIfNeeded() {

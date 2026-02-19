@@ -23,8 +23,10 @@ final class SpeechTranscriber {
     }
 
     func ensurePermissions() async -> Bool {
+        RuntimeLogger.log("[permissions] ensure start speech=\(Self.speechStatusDescription(SFSpeechRecognizer.authorizationStatus())) mic=\(Self.microphoneStatusDescription())")
         let micAuthorized = await resolveMicrophoneAuthorization()
         let speechAuthorized = await resolveSpeechAuthorization()
+        RuntimeLogger.log("[permissions] ensure done speechAuthorized=\(speechAuthorized) micAuthorized=\(micAuthorized)")
         return speechAuthorized && micAuthorized
     }
 
@@ -155,13 +157,19 @@ final class SpeechTranscriber {
             DispatchQueue.global(qos: .userInitiated).async {
                 let semaphore = DispatchSemaphore(value: 0)
                 var status: SFSpeechRecognizerAuthorizationStatus = .notDetermined
+                var callbackInvoked = false
 
                 SFSpeechRecognizer.requestAuthorization { newStatus in
                     status = newStatus
+                    callbackInvoked = true
+                    RuntimeLogger.log("[permissions] speech callback status=\(Self.speechStatusDescription(newStatus))")
                     semaphore.signal()
                 }
 
-                _ = semaphore.wait(timeout: .now() + timeout)
+                let waitResult = semaphore.wait(timeout: .now() + timeout)
+                if waitResult == .timedOut {
+                    RuntimeLogger.log("[permissions] speech callback timed out after \(Int(timeout))s")
+                }
 
                 let finalStatus: SFSpeechRecognizerAuthorizationStatus
                 if status == .notDetermined {
@@ -170,6 +178,7 @@ final class SpeechTranscriber {
                     finalStatus = status
                 }
 
+                RuntimeLogger.log("[permissions] speech final status=\(Self.speechStatusDescription(finalStatus)) callbackInvoked=\(callbackInvoked)")
                 continuation.resume(returning: finalStatus == .authorized)
             }
         }
@@ -187,17 +196,22 @@ final class SpeechTranscriber {
                     AVAudioApplication.requestRecordPermission { granted in
                         callbackGranted = granted
                         callbackInvoked = true
+                        RuntimeLogger.log("[permissions] microphone callback granted=\(granted)")
                         semaphore.signal()
                     }
                 } else {
                     AVCaptureDevice.requestAccess(for: .audio) { granted in
                         callbackGranted = granted
                         callbackInvoked = true
+                        RuntimeLogger.log("[permissions] microphone callback granted=\(granted)")
                         semaphore.signal()
                     }
                 }
 
-                _ = semaphore.wait(timeout: .now() + timeout)
+                let waitResult = semaphore.wait(timeout: .now() + timeout)
+                if waitResult == .timedOut {
+                    RuntimeLogger.log("[permissions] microphone callback timed out after \(Int(timeout))s")
+                }
 
                 let finalGranted: Bool
                 if #available(macOS 14.0, *) {
@@ -206,6 +220,7 @@ final class SpeechTranscriber {
                     finalGranted = callbackGranted || (callbackInvoked == false && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized)
                 }
 
+                RuntimeLogger.log("[permissions] microphone final granted=\(finalGranted) callbackInvoked=\(callbackInvoked) status=\(Self.microphoneStatusDescription())")
                 continuation.resume(returning: finalGranted)
             }
         }
@@ -223,5 +238,48 @@ final class SpeechTranscriber {
         try? await Task.sleep(nanoseconds: 250_000_000)
         engine.stop()
         inputNode.removeTap(onBus: 0)
+    }
+
+    private nonisolated static func speechStatusDescription(_ status: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch status {
+        case .authorized:
+            return "authorized"
+        case .denied:
+            return "denied"
+        case .restricted:
+            return "restricted"
+        case .notDetermined:
+            return "not_determined"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private nonisolated static func microphoneStatusDescription() -> String {
+        if #available(macOS 14.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted:
+                return "authorized"
+            case .denied:
+                return "denied"
+            case .undetermined:
+                return "not_determined"
+            @unknown default:
+                return "unknown"
+            }
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return "authorized"
+        case .denied:
+            return "denied"
+        case .restricted:
+            return "restricted"
+        case .notDetermined:
+            return "not_determined"
+        @unknown default:
+            return "unknown"
+        }
     }
 }

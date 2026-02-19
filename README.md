@@ -46,6 +46,7 @@ Native app launches as a menu bar item (`VF`) with controls for:
 - viewing recent transcript history
 - one-click `Copy + Undo Last Insert` rollback
 - opening permission settings
+- opening local runtime logs
 
 `Mode`, `Hotkey`, and `Language` selections persist across restarts.
 
@@ -57,3 +58,20 @@ open "/Users/axton/Documents/DailyWork🌴/Project Files/Code Projects/verbatim-
 ```
 
 The build script applies a fixed ad-hoc signature (`com.axtonliu.verbatimflow`) so permissions are tied to a stable app identity.
+
+Restart native app (kills stale processes first):
+```bash
+cd "/Users/axton/Documents/DailyWork🌴/Project Files/Code Projects/verbatim-flow"
+./scripts/restart-native-app.sh
+```
+
+Collect permission diagnostics (tccd + signature + app runtime log):
+```bash
+cd "/Users/axton/Documents/DailyWork🌴/Project Files/Code Projects/verbatim-flow"
+./scripts/collect-permission-diagnostics.sh 30
+```
+
+Runtime log file:
+```bash
+~/Library/Logs/VerbatimFlow/runtime.log
+```

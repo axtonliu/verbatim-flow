@@ -298,7 +298,7 @@ final class AppController {
     }
 
     private func emit(_ message: String) {
-        print(message)
+        RuntimeLogger.log(message)
         onLog?(message)
     }
 
