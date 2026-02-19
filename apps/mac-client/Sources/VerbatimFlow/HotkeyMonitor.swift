@@ -7,6 +7,7 @@ final class HotkeyMonitor {
     private let onPressed: () -> Void
     private let onReleased: () -> Void
     private let releaseWatchdogInterval: TimeInterval = 0.12
+    private let releaseWatchdogMismatchThreshold = 3
 
     private var keyDownMonitor: Any?
     private var keyUpMonitor: Any?
@@ -16,6 +17,7 @@ final class HotkeyMonitor {
     private let hotKeyID = EventHotKeyID(signature: OSType(0x56464B59), id: 1) // "VFKY"
     private var isPressed = false
     private var releaseWatchdog: DispatchSourceTimer?
+    private var releaseWatchdogMismatchCount = 0
 
     init(hotkey: Hotkey, onPressed: @escaping () -> Void, onReleased: @escaping () -> Void) {
         self.hotkey = hotkey
@@ -233,6 +235,7 @@ final class HotkeyMonitor {
             return
         }
         isPressed = true
+        releaseWatchdogMismatchCount = 0
         RuntimeLogger.log("[hotkey-monitor] \(source) pressed")
         startReleaseWatchdogIfNeeded()
         onPressed()
@@ -243,6 +246,7 @@ final class HotkeyMonitor {
             return
         }
         isPressed = false
+        releaseWatchdogMismatchCount = 0
         RuntimeLogger.log("[hotkey-monitor] \(source) released")
         stopReleaseWatchdog()
         onReleased()
@@ -264,6 +268,7 @@ final class HotkeyMonitor {
     private func stopReleaseWatchdog() {
         releaseWatchdog?.cancel()
         releaseWatchdog = nil
+        releaseWatchdogMismatchCount = 0
     }
 
     private func runReleaseWatchdogTick() {
@@ -272,15 +277,40 @@ final class HotkeyMonitor {
             return
         }
 
-        guard !isHotkeyCurrentlyDown() else {
+        let downByFlags = isHotkeyCurrentlyDownByFlags()
+        let downByPhysical = isHotkeyCurrentlyDownByPhysicalState()
+
+        if downByFlags == downByPhysical {
+            releaseWatchdogMismatchCount = 0
+            guard !downByFlags else {
+                return
+            }
+
+            RuntimeLogger.log("[hotkey-monitor] watchdog forced release for \(hotkey.display) (flags=up physical=up)")
+            transitionToReleased(source: "watchdog")
             return
         }
 
-        RuntimeLogger.log("[hotkey-monitor] watchdog forced release for \(hotkey.display)")
-        transitionToReleased(source: "watchdog")
+        releaseWatchdogMismatchCount += 1
+        guard releaseWatchdogMismatchCount >= releaseWatchdogMismatchThreshold else {
+            return
+        }
+
+        RuntimeLogger.log(
+            "[hotkey-monitor] watchdog mismatch combo=\(hotkey.display) flagsDown=\(downByFlags) physicalDown=\(downByPhysical) ticks=\(releaseWatchdogMismatchCount)"
+        )
+
+        guard !downByPhysical else {
+            // Physical state still reports pressed; keep listening and avoid log spam.
+            releaseWatchdogMismatchCount = 0
+            return
+        }
+
+        RuntimeLogger.log("[hotkey-monitor] watchdog forced release for \(hotkey.display) (physical-up override)")
+        transitionToReleased(source: "watchdog-physical")
     }
 
-    private func isHotkeyCurrentlyDown() -> Bool {
+    private func isHotkeyCurrentlyDownByFlags() -> Bool {
         let modifiers = currentModifierFlags()
         guard modifiers.isSuperset(of: hotkey.modifiers) else {
             return false
@@ -291,6 +321,49 @@ final class HotkeyMonitor {
         }
 
         return CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keyCode))
+    }
+
+    private func isHotkeyCurrentlyDownByPhysicalState() -> Bool {
+        guard areRequiredModifiersPhysicallyDown() else {
+            return false
+        }
+
+        guard let keyCode = hotkey.keyCode else {
+            return true
+        }
+
+        return CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keyCode))
+    }
+
+    private func areRequiredModifiersPhysicallyDown() -> Bool {
+        if hotkey.modifiers.contains(.shift),
+           !isAnyKeyDown([CGKeyCode(56), CGKeyCode(60)]) {
+            return false
+        }
+
+        if hotkey.modifiers.contains(.control),
+           !isAnyKeyDown([CGKeyCode(59), CGKeyCode(62)]) {
+            return false
+        }
+
+        if hotkey.modifiers.contains(.option),
+           !isAnyKeyDown([CGKeyCode(58), CGKeyCode(61)]) {
+            return false
+        }
+
+        if hotkey.modifiers.contains(.command),
+           !isAnyKeyDown([CGKeyCode(55), CGKeyCode(54)]) {
+            return false
+        }
+
+        return true
+    }
+
+    private func isAnyKeyDown(_ keyCodes: [CGKeyCode]) -> Bool {
+        for keyCode in keyCodes where CGEventSource.keyState(.combinedSessionState, key: keyCode) {
+            return true
+        }
+        return false
     }
 
     private func currentModifierFlags() -> NSEvent.ModifierFlags {

@@ -27,6 +27,23 @@
   - Add explicit development escape hatch: `VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL=1`.
   - TLS calls use curl HTTPS-only protocol constraint when endpoint is HTTPS.
 
+## 2026-02-19: Modifier hotkey sometimes stuck in pressed state
+
+- Symptom:
+  - User released hotkey (`shift+option`), but app occasionally remained in recording state until extra key action.
+- Root-cause hypothesis:
+  - Watchdog release logic relied on modifier flags only.
+  - In some sessions, flags could remain stale for a short period, so release was not triggered.
+- Fix:
+  - Keep event-driven release path unchanged.
+  - Harden watchdog with dual-source state check:
+    - `flags` state
+    - physical key state (`CGEventSource.keyState`) for left/right modifier keys
+  - Add mismatch threshold debounce before forced release to avoid false positives.
+- Guardrail:
+  - Do not rely on a single signal source for modifier-only hotkeys.
+  - Any future hotkey refactor must preserve a watchdog fallback path independent from event callbacks.
+
 ## Manual regression checklist (before release)
 
 - Permissions:
