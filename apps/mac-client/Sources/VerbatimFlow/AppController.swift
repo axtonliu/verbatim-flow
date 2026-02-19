@@ -322,6 +322,10 @@ final class AppController {
             RuntimeLogger.log("[hotkey-handler] ignored pressed because runtimeState=stopped")
             return
         }
+        guard runtimeState == .ready else {
+            RuntimeLogger.log("[hotkey-handler] ignored pressed because runtimeState=\(runtimeState)")
+            return
+        }
         guard !isRecording else {
             RuntimeLogger.log("[hotkey-handler] ignored pressed because isRecording=true")
             return

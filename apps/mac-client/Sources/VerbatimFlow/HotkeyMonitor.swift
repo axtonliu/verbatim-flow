@@ -6,6 +6,7 @@ final class HotkeyMonitor {
     private let hotkey: Hotkey
     private let onPressed: () -> Void
     private let onReleased: () -> Void
+    private let releaseWatchdogInterval: TimeInterval = 0.12
 
     private var keyDownMonitor: Any?
     private var keyUpMonitor: Any?
@@ -14,6 +15,7 @@ final class HotkeyMonitor {
     private var hotKeyRef: EventHotKeyRef?
     private let hotKeyID = EventHotKeyID(signature: OSType(0x56464B59), id: 1) // "VFKY"
     private var isPressed = false
+    private var releaseWatchdog: DispatchSourceTimer?
 
     init(hotkey: Hotkey, onPressed: @escaping () -> Void, onReleased: @escaping () -> Void) {
         self.hotkey = hotkey
@@ -23,6 +25,7 @@ final class HotkeyMonitor {
 
     func start() {
         RuntimeLogger.log("[hotkey-monitor] start combo=\(hotkey.display) keyCode=\(String(describing: hotkey.keyCode))")
+        stopReleaseWatchdog()
 
         if let keyCode = hotkey.keyCode, installCarbonHotkey(keyCode: keyCode) {
             RuntimeLogger.log("[hotkey-monitor] using carbon hotkey for \(hotkey.display)")
@@ -36,6 +39,7 @@ final class HotkeyMonitor {
     deinit {
         uninstallCarbonHotkey()
         uninstallEventMonitors()
+        stopReleaseWatchdog()
     }
 
     private func installEventMonitors() {
@@ -82,12 +86,7 @@ final class HotkeyMonitor {
             return
         }
 
-        guard !isPressed else {
-            return
-        }
-        isPressed = true
-        RuntimeLogger.log("[hotkey-monitor] NSEvent keyDown matched keyCode=\(event.keyCode)")
-        onPressed()
+        transitionToPressed(source: "NSEvent keyDown keyCode=\(event.keyCode)")
     }
 
     private func handleKeyUp(_ event: NSEvent) {
@@ -99,12 +98,7 @@ final class HotkeyMonitor {
             return
         }
 
-        guard isPressed else {
-            return
-        }
-        isPressed = false
-        RuntimeLogger.log("[hotkey-monitor] NSEvent keyUp matched keyCode=\(event.keyCode)")
-        onReleased()
+        transitionToReleased(source: "NSEvent keyUp keyCode=\(event.keyCode)")
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
@@ -115,17 +109,10 @@ final class HotkeyMonitor {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let requiredDown = flags.isSuperset(of: hotkey.modifiers)
 
-        if requiredDown && !isPressed {
-            isPressed = true
-            RuntimeLogger.log("[hotkey-monitor] NSEvent flagsChanged pressed")
-            onPressed()
-            return
-        }
-
-        if !requiredDown && isPressed {
-            isPressed = false
-            RuntimeLogger.log("[hotkey-monitor] NSEvent flagsChanged released")
-            onReleased()
+        if requiredDown {
+            transitionToPressed(source: "NSEvent flagsChanged")
+        } else {
+            transitionToReleased(source: "NSEvent flagsChanged")
         }
     }
 
@@ -204,18 +191,12 @@ final class HotkeyMonitor {
 
         let kind = GetEventKind(eventRef)
         if kind == UInt32(kEventHotKeyPressed) {
-            guard !isPressed else { return noErr }
-            isPressed = true
-            RuntimeLogger.log("[hotkey-monitor] carbon pressed")
-            onPressed()
+            transitionToPressed(source: "carbon")
             return noErr
         }
 
         if kind == UInt32(kEventHotKeyReleased) {
-            guard isPressed else { return noErr }
-            isPressed = false
-            RuntimeLogger.log("[hotkey-monitor] carbon released")
-            onReleased()
+            transitionToReleased(source: "carbon")
             return noErr
         }
 
@@ -245,5 +226,90 @@ final class HotkeyMonitor {
         }
         let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(userData).takeUnretainedValue()
         return monitor.handleCarbonEvent(eventRef)
+    }
+
+    private func transitionToPressed(source: String) {
+        guard !isPressed else {
+            return
+        }
+        isPressed = true
+        RuntimeLogger.log("[hotkey-monitor] \(source) pressed")
+        startReleaseWatchdogIfNeeded()
+        onPressed()
+    }
+
+    private func transitionToReleased(source: String) {
+        guard isPressed else {
+            return
+        }
+        isPressed = false
+        RuntimeLogger.log("[hotkey-monitor] \(source) released")
+        stopReleaseWatchdog()
+        onReleased()
+    }
+
+    private func startReleaseWatchdogIfNeeded() {
+        guard releaseWatchdog == nil else {
+            return
+        }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + releaseWatchdogInterval, repeating: releaseWatchdogInterval)
+        timer.setEventHandler { [weak self] in
+            self?.runReleaseWatchdogTick()
+        }
+        releaseWatchdog = timer
+        timer.resume()
+    }
+
+    private func stopReleaseWatchdog() {
+        releaseWatchdog?.cancel()
+        releaseWatchdog = nil
+    }
+
+    private func runReleaseWatchdogTick() {
+        guard isPressed else {
+            stopReleaseWatchdog()
+            return
+        }
+
+        guard !isHotkeyCurrentlyDown() else {
+            return
+        }
+
+        RuntimeLogger.log("[hotkey-monitor] watchdog forced release for \(hotkey.display)")
+        transitionToReleased(source: "watchdog")
+    }
+
+    private func isHotkeyCurrentlyDown() -> Bool {
+        let modifiers = currentModifierFlags()
+        guard modifiers.isSuperset(of: hotkey.modifiers) else {
+            return false
+        }
+
+        guard let keyCode = hotkey.keyCode else {
+            return true
+        }
+
+        return CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(keyCode))
+    }
+
+    private func currentModifierFlags() -> NSEvent.ModifierFlags {
+        let cgFlags = CGEventSource.flagsState(.combinedSessionState)
+        var flags: NSEvent.ModifierFlags = []
+
+        if cgFlags.contains(.maskShift) {
+            flags.insert(.shift)
+        }
+        if cgFlags.contains(.maskControl) {
+            flags.insert(.control)
+        }
+        if cgFlags.contains(.maskAlternate) {
+            flags.insert(.option)
+        }
+        if cgFlags.contains(.maskCommand) {
+            flags.insert(.command)
+        }
+
+        return flags
     }
 }
