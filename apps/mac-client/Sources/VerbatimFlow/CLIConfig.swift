@@ -4,6 +4,7 @@ import Foundation
 enum OutputMode: String {
     case raw
     case formatOnly = "format-only"
+    case clarify
 }
 
 struct Hotkey {
@@ -44,7 +45,7 @@ struct CLIConfig {
             case "--mode":
                 index += 1
                 guard index < args.count, let mode = OutputMode(rawValue: args[index]) else {
-                    throw ConfigError.invalidValue("--mode", "raw | format-only")
+                    throw ConfigError.invalidValue("--mode", "raw | format-only | clarify")
                 }
                 config = CLIConfig(
                     mode: mode,
@@ -129,7 +130,7 @@ enum HelpPrinter {
             "verbatim-flow",
             "",
             "Usage:",
-            "  verbatim-flow [--mode raw|format-only] [--locale <id>] [--hotkey ctrl+shift+space|shift+option] [--require-on-device] [--dry-run]",
+            "  verbatim-flow [--mode raw|format-only|clarify] [--locale <id>] [--hotkey ctrl+shift+space|shift+option] [--require-on-device] [--dry-run]",
             "",
             "Defaults:",
             "  --mode raw",

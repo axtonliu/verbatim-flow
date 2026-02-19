@@ -6,6 +6,7 @@ A fast dictation input app prototype for macOS.
 - Keep latency low enough for everyday writing.
 - Preserve original wording by default (no unsolicited rewriting).
 - Allow optional formatting-only cleanup (punctuation, spacing, case).
+- Provide optional `Clarify` mode for concise, cleaner paragraph output.
 
 ## Monorepo layout
 - `apps/mac-client/python`: runnable Python MVP (hotkey, recording, transcription, guard, inject).
@@ -39,7 +40,7 @@ cd "/Users/axton/Documents/DailyWork🌴/Project Files/Code Projects/verbatim-fl
 
 Native app launches as a menu bar item (`VF`) with controls for:
 - pause/resume hotkey listener
-- switching `Raw` / `Format-only` mode
+- switching `Raw` / `Format-only` / `Clarify` mode
 - switching language (`System Default` / `zh-Hans` / `en-US`)
 - requesting microphone/speech permission
 - changing hotkey preset in-app

@@ -333,7 +333,12 @@ final class AppController {
             to: guarded.text,
             replacements: terminologyRules.replacements
         )
-        let finalText = terminologyApplied.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mixedEnhancement = MixedLanguageEnhancer.apply(
+            text: terminologyApplied.text,
+            localeIdentifier: localeIdentifier,
+            vocabularyHints: DictationVocabulary.fuzzyCorrectionTerms(customHints: terminologyRules.hints)
+        )
+        let finalText = mixedEnhancement.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !finalText.isEmpty else {
             pendingInsertTarget = nil
             emit("[skip] Empty transcript after terminology normalization")
@@ -343,6 +348,9 @@ final class AppController {
 
         if !terminologyApplied.appliedRules.isEmpty {
             emit("[terminology] applied: \(terminologyApplied.appliedRules.joined(separator: ", "))")
+        }
+        if !mixedEnhancement.appliedRules.isEmpty {
+            emit("[mixed-language] applied: \(mixedEnhancement.appliedRules.joined(separator: ", "))")
         }
 
         onTranscriptCommitted?(finalText)

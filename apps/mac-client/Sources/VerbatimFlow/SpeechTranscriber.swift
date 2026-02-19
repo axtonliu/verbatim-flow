@@ -289,43 +289,7 @@ final class SpeechTranscriber {
     }
 
     private func contextualHints(for localeIdentifier: String) -> [String] {
-        let techTerms = [
-            "Commit",
-            "Branch",
-            "Repository",
-            "Pull Request",
-            "PR",
-            "Release",
-            "Token",
-            "Context",
-            "Prompt",
-            "Workflow",
-            "Git",
-            "Mac",
-            "Whisper",
-            "VerbatimFlow",
-            "Raycast",
-            "Wispr",
-            "Tabless",
-            "Typeless"
-        ]
         let customRules = TerminologyDictionary.loadRules()
-
-        if localeIdentifier.lowercased().hasPrefix("zh") {
-            return techTerms + customRules.hints + [
-                "中文",
-                "英文",
-                "中英文混合",
-                "识别准确率",
-                "剪贴板",
-                "文本框",
-                "插入",
-                "提交",
-                "分支",
-                "仓库",
-                "拉取请求"
-            ]
-        }
-        return techTerms + customRules.hints
+        return DictationVocabulary.contextualHints(localeIdentifier: localeIdentifier, customHints: customRules.hints)
     }
 }

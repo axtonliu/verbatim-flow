@@ -37,6 +37,11 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         action: #selector(setFormatOnlyMode),
         keyEquivalent: "f"
     )
+    private lazy var clarifyModeItem = NSMenuItem(
+        title: "Clarify",
+        action: #selector(setClarifyMode),
+        keyEquivalent: "c"
+    )
 
     private let hotkeyInfoItem: NSMenuItem
     private let hotkeyMenuItem = NSMenuItem(title: "Hotkey", action: nil, keyEquivalent: "")
@@ -205,10 +210,12 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
         rawModeItem.target = self
         formatOnlyModeItem.target = self
+        clarifyModeItem.target = self
 
         let modeSubmenu = NSMenu(title: "Mode")
         modeSubmenu.addItem(rawModeItem)
         modeSubmenu.addItem(formatOnlyModeItem)
+        modeSubmenu.addItem(clarifyModeItem)
         modeMenuItem.submenu = modeSubmenu
 
         hotkeyCtrlShiftSpaceItem.target = self
@@ -317,6 +324,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func refreshModeChecks() {
         rawModeItem.state = controller.currentMode == .raw ? .on : .off
         formatOnlyModeItem.state = controller.currentMode == .formatOnly ? .on : .off
+        clarifyModeItem.state = controller.currentMode == .clarify ? .on : .off
     }
 
     private func refreshHotkeyChecks() {
@@ -424,6 +432,13 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func setFormatOnlyMode() {
         controller.setMode(.formatOnly)
         preferences.saveMode(.formatOnly)
+        refreshModeChecks()
+    }
+
+    @objc
+    private func setClarifyMode() {
+        controller.setMode(.clarify)
+        preferences.saveMode(.clarify)
         refreshModeChecks()
     }
 
