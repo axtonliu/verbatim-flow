@@ -487,6 +487,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         permissionRequestFallbackWorkItem?.cancel()
         elevateForPermissionPromptIfNeeded()
         lastEventItem.title = "Last event: [permissions] request initiated"
+        permissionStatusItem.title = "Permissions: Requesting..."
         refreshPermissionStatus(controller.currentPermissionSnapshot())
         shouldShowPermissionAlertOnNextSnapshot = true
         controller.requestSpeechAndMicrophonePermissions()

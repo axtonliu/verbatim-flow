@@ -151,60 +151,62 @@ final class SpeechTranscriber {
 
     private func requestSpeechAuthorization() async -> Bool {
         await withCheckedContinuation { continuation in
-            let lock = NSLock()
-            var finished = false
+            let timeout = permissionRequestTimeout
+            DispatchQueue.global(qos: .userInitiated).async {
+                let semaphore = DispatchSemaphore(value: 0)
+                var status: SFSpeechRecognizerAuthorizationStatus = .notDetermined
 
-            func finish(_ granted: Bool) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !finished else {
-                    return
+                SFSpeechRecognizer.requestAuthorization { newStatus in
+                    status = newStatus
+                    semaphore.signal()
                 }
-                finished = true
-                continuation.resume(returning: granted)
-            }
 
-            SFSpeechRecognizer.requestAuthorization { status in
-                finish(status == .authorized)
-            }
+                _ = semaphore.wait(timeout: .now() + timeout)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + permissionRequestTimeout) {
-                finish(SFSpeechRecognizer.authorizationStatus() == .authorized)
+                let finalStatus: SFSpeechRecognizerAuthorizationStatus
+                if status == .notDetermined {
+                    finalStatus = SFSpeechRecognizer.authorizationStatus()
+                } else {
+                    finalStatus = status
+                }
+
+                continuation.resume(returning: finalStatus == .authorized)
             }
         }
     }
 
     private func requestMicrophoneAuthorization() async -> Bool {
         await withCheckedContinuation { continuation in
-            let lock = NSLock()
-            var finished = false
+            let timeout = permissionRequestTimeout
+            DispatchQueue.global(qos: .userInitiated).async {
+                let semaphore = DispatchSemaphore(value: 0)
+                var callbackGranted = false
+                var callbackInvoked = false
 
-            func finish(_ granted: Bool) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !finished else {
-                    return
-                }
-                finished = true
-                continuation.resume(returning: granted)
-            }
-
-            if #available(macOS 14.0, *) {
-                AVAudioApplication.requestRecordPermission { granted in
-                    finish(granted)
-                }
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + permissionRequestTimeout) {
-                    finish(AVAudioApplication.shared.recordPermission == .granted)
-                }
-            } else {
-                AVCaptureDevice.requestAccess(for: .audio) { granted in
-                    finish(granted)
+                if #available(macOS 14.0, *) {
+                    AVAudioApplication.requestRecordPermission { granted in
+                        callbackGranted = granted
+                        callbackInvoked = true
+                        semaphore.signal()
+                    }
+                } else {
+                    AVCaptureDevice.requestAccess(for: .audio) { granted in
+                        callbackGranted = granted
+                        callbackInvoked = true
+                        semaphore.signal()
+                    }
                 }
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + permissionRequestTimeout) {
-                    finish(AVCaptureDevice.authorizationStatus(for: .audio) == .authorized)
+                _ = semaphore.wait(timeout: .now() + timeout)
+
+                let finalGranted: Bool
+                if #available(macOS 14.0, *) {
+                    finalGranted = callbackGranted || (callbackInvoked == false && AVAudioApplication.shared.recordPermission == .granted)
+                } else {
+                    finalGranted = callbackGranted || (callbackInvoked == false && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized)
                 }
+
+                continuation.resume(returning: finalGranted)
             }
         }
     }
