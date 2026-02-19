@@ -55,6 +55,10 @@ Build a controllable dictation stack that can rival tools like Typeless/Wispr in
 **Decision**: Re-sign packaged `.app` with fixed identifier `com.axtonliu.verbatimflow` in `build-native-app.sh`.
 **Reason**: Unsafely wrapped binaries can appear granted in settings but still fail runtime permission checks due unstable process identity.
 
+### [Permission request hardening] (2026-02-18)
+**Decision**: Permission requests now temporarily foreground the app, use timeout-safe callbacks, and prefer `AVAudioApplication` microphone APIs on macOS 14+.
+**Reason**: Some systems failed to surface mic/speech prompts from menu-bar-only flow, causing indefinite `Not Determined` state.
+
 ## Next implementation target
 - Implement a minimal vertical slice:
   - push-to-talk hotkey

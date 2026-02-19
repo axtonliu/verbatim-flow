@@ -25,6 +25,10 @@ Status indicator in menu bar:
 - `VF…` = processing
 - `VF⏸` = paused
 
+Permission request behavior:
+- On request, the app is temporarily activated to foreground to improve macOS prompt reliability.
+- Permission requests use timeout fallback, so the UI reports status even if macOS callbacks stall.
+
 ### Persistent settings
 `Mode`, `Hotkey`, and `Language` are now persisted with `UserDefaults` and restored on restart.
 CLI flags (`--mode`, `--hotkey`, `--locale`) still override saved values for the current run.

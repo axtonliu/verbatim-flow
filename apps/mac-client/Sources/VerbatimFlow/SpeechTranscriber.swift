@@ -4,6 +4,8 @@ import Speech
 
 @MainActor
 final class SpeechTranscriber {
+    private let permissionRequestTimeout: TimeInterval = 5
+
     private let localeIdentifier: String
     private let requireOnDeviceRecognition: Bool
 
@@ -21,8 +23,8 @@ final class SpeechTranscriber {
     }
 
     func ensurePermissions() async -> Bool {
-        let speechAuthorized = await requestSpeechAuthorization()
-        let micAuthorized = await requestMicrophoneAuthorization()
+        let speechAuthorized = await resolveSpeechAuthorization()
+        let micAuthorized = await resolveMicrophoneAuthorization()
         return speechAuthorized && micAuthorized
     }
 
@@ -98,18 +100,102 @@ final class SpeechTranscriber {
         continuation.resume(returning: latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    private func resolveSpeechAuthorization() async -> Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return true
+        case .denied, .restricted:
+            return false
+        case .notDetermined:
+            return await requestSpeechAuthorization()
+        @unknown default:
+            return false
+        }
+    }
+
+    private func resolveMicrophoneAuthorization() async -> Bool {
+        if #available(macOS 14.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted:
+                return true
+            case .denied:
+                return false
+            case .undetermined:
+                return await requestMicrophoneAuthorization()
+            @unknown default:
+                return false
+            }
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return true
+        case .denied, .restricted:
+            return false
+        case .notDetermined:
+            return await requestMicrophoneAuthorization()
+        @unknown default:
+            return false
+        }
+    }
+
     private func requestSpeechAuthorization() async -> Bool {
         await withCheckedContinuation { continuation in
+            let lock = NSLock()
+            var finished = false
+
+            func finish(_ granted: Bool) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !finished else {
+                    return
+                }
+                finished = true
+                continuation.resume(returning: granted)
+            }
+
             SFSpeechRecognizer.requestAuthorization { status in
-                continuation.resume(returning: status == .authorized)
+                finish(status == .authorized)
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + permissionRequestTimeout) {
+                finish(SFSpeechRecognizer.authorizationStatus() == .authorized)
             }
         }
     }
 
     private func requestMicrophoneAuthorization() async -> Bool {
         await withCheckedContinuation { continuation in
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
+            let lock = NSLock()
+            var finished = false
+
+            func finish(_ granted: Bool) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !finished else {
+                    return
+                }
+                finished = true
                 continuation.resume(returning: granted)
+            }
+
+            if #available(macOS 14.0, *) {
+                AVAudioApplication.requestRecordPermission { granted in
+                    finish(granted)
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + permissionRequestTimeout) {
+                    finish(AVAudioApplication.shared.recordPermission == .granted)
+                }
+                return
+            }
+
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                finish(granted)
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + permissionRequestTimeout) {
+                finish(AVCaptureDevice.authorizationStatus(for: .audio) == .authorized)
             }
         }
     }

@@ -128,6 +128,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var recentTranscripts: [TranscriptEntry] = []
     private var shouldShowPermissionAlertOnNextSnapshot = false
     private var permissionRequestFallbackWorkItem: DispatchWorkItem?
+    private var shouldRestoreAccessoryAfterPermissionRequest = false
     private let transcriptDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
@@ -270,6 +271,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
                 self?.shouldShowPermissionAlertOnNextSnapshot = false
                 self?.presentPermissionAlert(snapshot)
             }
+            self?.restoreAccessoryModeIfNeeded()
         }
     }
 
@@ -483,6 +485,8 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     @objc
     private func requestPermissions() {
         permissionRequestFallbackWorkItem?.cancel()
+        elevateForPermissionPromptIfNeeded()
+        lastEventItem.title = "Last event: [permissions] request initiated"
         refreshPermissionStatus(controller.currentPermissionSnapshot())
         shouldShowPermissionAlertOnNextSnapshot = true
         controller.requestSpeechAndMicrophonePermissions()
@@ -495,9 +499,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             self.refreshPermissionStatus(snapshot)
             self.lastEventItem.title = "Last event: [permissions] request timed out; check system settings"
             self.presentPermissionAlert(snapshot)
+            self.restoreAccessoryModeIfNeeded()
         }
         permissionRequestFallbackWorkItem = fallback
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: fallback)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0, execute: fallback)
     }
 
     @objc
@@ -523,6 +528,26 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func openSystemSettings(url: String) {
         guard let target = URL(string: url) else { return }
         NSWorkspace.shared.open(target)
+    }
+
+    private func elevateForPermissionPromptIfNeeded() {
+        guard NSApp.activationPolicy() == .accessory else {
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        if NSApp.setActivationPolicy(.regular) {
+            shouldRestoreAccessoryAfterPermissionRequest = true
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func restoreAccessoryModeIfNeeded() {
+        guard shouldRestoreAccessoryAfterPermissionRequest else {
+            return
+        }
+        shouldRestoreAccessoryAfterPermissionRequest = false
+        _ = NSApp.setActivationPolicy(.accessory)
     }
 
     private func presentPermissionAlert(_ snapshot: PermissionSnapshot) {

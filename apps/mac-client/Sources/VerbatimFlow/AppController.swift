@@ -121,12 +121,18 @@ final class AppController {
 
     func currentPermissionSnapshot() -> PermissionSnapshot {
         let speechStatus = SFSpeechRecognizer.authorizationStatus()
-        let microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let accessibilityTrusted = AXIsProcessTrusted()
+
+        let microphoneState: PermissionState
+        if #available(macOS 14.0, *) {
+            microphoneState = mapMicrophoneStatus(AVAudioApplication.shared.recordPermission)
+        } else {
+            microphoneState = mapMicrophoneStatus(AVCaptureDevice.authorizationStatus(for: .audio))
+        }
 
         return PermissionSnapshot(
             speech: mapSpeechStatus(speechStatus),
-            microphone: mapMicrophoneStatus(microphoneStatus),
+            microphone: microphoneState,
             accessibilityTrusted: accessibilityTrusted
         )
     }
@@ -318,6 +324,20 @@ final class AppController {
             return .denied
         case .restricted:
             return .restricted
+        @unknown default:
+            return .unsupported
+        }
+    }
+
+    @available(macOS 14.0, *)
+    private func mapMicrophoneStatus(_ status: AVAudioApplication.recordPermission) -> PermissionState {
+        switch status {
+        case .undetermined:
+            return .notDetermined
+        case .denied:
+            return .denied
+        case .granted:
+            return .authorized
         @unknown default:
             return .unsupported
         }
