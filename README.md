@@ -49,6 +49,7 @@ Native app launches as a menu bar item (`VF`) with controls for:
 - viewing recent transcript history
 - one-click `Copy + Undo Last Insert` rollback
 - opening/editing terminology dictionary (`term` and `source => target` rules)
+- opening/editing OpenAI cloud settings (`openai.env`)
 - opening permission settings
 - opening local runtime logs
 
@@ -83,4 +84,9 @@ Runtime log file:
 Terminology dictionary file:
 ```bash
 ~/Library/Application\ Support/VerbatimFlow/terminology.txt
+```
+
+OpenAI cloud settings file:
+```bash
+~/Library/Application\ Support/VerbatimFlow/openai.env
 ```

@@ -31,7 +31,7 @@ enum AppError: Error, CustomStringConvertible {
             }
             return "Whisper transcription failed: \(details)"
         case .openAIAPIKeyMissing:
-            return "OPENAI_API_KEY is missing. Set it before using OpenAI Cloud engine."
+            return "OPENAI_API_KEY is missing. Set it in environment or open \(OpenAISettings.fileURL.path)."
         case .openAITranscriptionFailed(let details):
             if details.isEmpty {
                 return "OpenAI Cloud transcription failed"

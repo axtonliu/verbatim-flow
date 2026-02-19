@@ -303,14 +303,28 @@ final class SpeechTranscriber {
     }
 
     private nonisolated static func transcribeOpenAIAudioFile(audioURL: URL, languageCode: String?) throws -> String {
-        guard let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !apiKey.isEmpty else {
+        let env = ProcessInfo.processInfo.environment
+        let fileValues = OpenAISettings.loadValues()
+
+        let apiKey = resolvedSetting(
+            key: "OPENAI_API_KEY",
+            environment: env,
+            fileValues: fileValues
+        )
+        guard let apiKey, !apiKey.isEmpty else {
             throw AppError.openAIAPIKeyMissing
         }
 
-        let model = ProcessInfo.processInfo.environment["VERBATIMFLOW_OPENAI_MODEL"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedModel = (model?.isEmpty == false ? model! : "gpt-4o-mini-transcribe")
-        let baseURL = ProcessInfo.processInfo.environment["VERBATIMFLOW_OPENAI_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedBaseURL = (baseURL?.isEmpty == false ? baseURL! : "https://api.openai.com/v1")
+        let resolvedModel = resolvedSetting(
+            key: "VERBATIMFLOW_OPENAI_MODEL",
+            environment: env,
+            fileValues: fileValues
+        ) ?? "gpt-4o-mini-transcribe"
+        let resolvedBaseURL = resolvedSetting(
+            key: "VERBATIMFLOW_OPENAI_BASE_URL",
+            environment: env,
+            fileValues: fileValues
+        ) ?? "https://api.openai.com/v1"
         let endpoint = resolvedBaseURL.hasSuffix("/") ? "\(resolvedBaseURL)audio/transcriptions" : "\(resolvedBaseURL)/audio/transcriptions"
 
         let process = Process()
@@ -372,6 +386,20 @@ final class SpeechTranscriber {
         }
 
         throw AppError.openAITranscriptionFailed("Response has no text field")
+    }
+
+    private nonisolated static func resolvedSetting(
+        key: String,
+        environment: [String: String],
+        fileValues: [String: String]
+    ) -> String? {
+        if let envValue = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !envValue.isEmpty {
+            return envValue
+        }
+        if let fileValue = fileValues[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !fileValue.isEmpty {
+            return fileValue
+        }
+        return nil
     }
 
     private nonisolated static func resolveWhisperScriptURL() -> URL? {

@@ -20,6 +20,7 @@ The app runs as a menu bar item (`VF`). Use the menu to:
 - Access recent transcript history
 - Use `Copy + Undo Last Insert` for one-click rollback
 - Open Accessibility and Microphone permission pages
+- Open OpenAI cloud settings file
 
 Status indicator in menu bar:
 - `VF` = ready
@@ -65,3 +66,6 @@ When `Recognition Engine` is set to `OpenAI Cloud`, set:
 - `OPENAI_API_KEY` (required)
 - `VERBATIMFLOW_OPENAI_MODEL` (optional, default: `gpt-4o-mini-transcribe`)
 - `VERBATIMFLOW_OPENAI_BASE_URL` (optional, default: `https://api.openai.com/v1`)
+
+If app environment variables are unavailable in GUI launch mode, edit:
+`~/Library/Application Support/VerbatimFlow/openai.env`
