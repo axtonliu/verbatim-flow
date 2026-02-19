@@ -5,15 +5,15 @@ do {
     let config = try CLIConfig.parse()
     let app = NSApplication.shared
 
-    Task { @MainActor in
-        let delegate = MenuBarApp(config: config)
-        app.delegate = delegate
-        withExtendedLifetime(delegate) {
-            app.run()
-        }
+    let delegate = MainActor.assumeIsolated {
+        MenuBarApp(config: config)
     }
-
-    RunLoop.main.run()
+    MainActor.assumeIsolated {
+        app.delegate = delegate
+    }
+    withExtendedLifetime(delegate) {
+        app.run()
+    }
 } catch {
     fputs("\(error)\n", stderr)
     HelpPrinter.printAndExit()

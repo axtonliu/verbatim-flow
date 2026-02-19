@@ -84,13 +84,27 @@ final class AppController {
         hotkeyMonitor = HotkeyMonitor(
             hotkey: hotkey,
             onPressed: { [weak self] in
+                RuntimeLogger.log("[hotkey-bridge] onPressed callback fired")
+                guard let self else {
+                    RuntimeLogger.log("[hotkey-bridge] onPressed callback dropped: self released")
+                    return
+                }
                 Task { @MainActor in
-                    await self?.handleHotkeyPressed()
+                    RuntimeLogger.log("[hotkey-bridge] onPressed task entered")
+                    await self.handleHotkeyPressed()
+                    RuntimeLogger.log("[hotkey-bridge] onPressed task finished")
                 }
             },
             onReleased: { [weak self] in
+                RuntimeLogger.log("[hotkey-bridge] onReleased callback fired")
+                guard let self else {
+                    RuntimeLogger.log("[hotkey-bridge] onReleased callback dropped: self released")
+                    return
+                }
                 Task { @MainActor in
-                    await self?.handleHotkeyReleased()
+                    RuntimeLogger.log("[hotkey-bridge] onReleased task entered")
+                    await self.handleHotkeyReleased()
+                    RuntimeLogger.log("[hotkey-bridge] onReleased task finished")
                 }
             }
         )
@@ -240,10 +254,13 @@ final class AppController {
     }
 
     private func handleHotkeyPressed() async {
+        RuntimeLogger.log("[hotkey-handler] handleHotkeyPressed invoked")
         guard runtimeState != .stopped else {
+            RuntimeLogger.log("[hotkey-handler] ignored pressed because runtimeState=stopped")
             return
         }
         guard !isRecording else {
+            RuntimeLogger.log("[hotkey-handler] ignored pressed because isRecording=true")
             return
         }
 
@@ -268,10 +285,13 @@ final class AppController {
     }
 
     private func handleHotkeyReleased() async {
+        RuntimeLogger.log("[hotkey-handler] handleHotkeyReleased invoked")
         guard runtimeState != .stopped else {
+            RuntimeLogger.log("[hotkey-handler] ignored released because runtimeState=stopped")
             return
         }
         guard isRecording else {
+            RuntimeLogger.log("[hotkey-handler] ignored released because isRecording=false")
             return
         }
 
