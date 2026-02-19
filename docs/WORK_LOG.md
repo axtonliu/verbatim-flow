@@ -90,3 +90,29 @@
   - Optional punctuation normalization (`English comma/period` -> `Chinese punctuation`) when locale is Chinese.
   - Optional lightweight paragraph split by pause/length heuristics.
   - Keep disabled by default until quality validated.
+
+## 2026-02-19 - Execution Todo (Locked Order)
+
+### Current plan
+- [ ] Todo 1 (P1): Long dictation fault tolerance
+  - Keep last recording for retry when transcription fails.
+  - Add `Retry last audio` action.
+  - Add failed-audio persistence path and clear policy.
+- [ ] Todo 2 (P1): One-shot voice commands
+  - Support command phrases like "把以上内容整理成书面语" for current utterance only.
+  - Keep global mode unchanged unless explicitly switched.
+- [ ] Todo 3 (P2): Readability polish
+  - Chinese punctuation normalization (optional).
+  - Auto paragraph split (optional, conservative default).
+
+### Regression gate (must pass before moving to next todo)
+- Automated:
+  - `swift test` must pass.
+- Manual smoke:
+  - Codex input insertion works (unicode typing path).
+  - Terminal/iTerm insertion works.
+  - One standard editor insertion works (AX or paste fallback).
+  - Hotkey hold/release loop test (at least 20 rounds, including long hold) has no stuck recording.
+  - Permissions status remains healthy after rebuild/relaunch.
+- Rule:
+  - Do not start next todo until current todo passes this gate and is logged in `docs/REGRESSION_LOG.md`.
