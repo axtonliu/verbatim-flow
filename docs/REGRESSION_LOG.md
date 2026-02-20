@@ -59,6 +59,24 @@
   - New failure overwrites previous failed recording.
   - Successful retry clears both audio and metadata.
 
+## 2026-02-19: Extra press during processing caused pseudo pressed lifecycle
+
+- Symptom:
+  - User released hotkey, but occasionally appeared as "press not released" in menu state.
+  - Repro logs showed an extra `flagsChanged pressed` while app state was `processing`.
+- Evidence (runtime log):
+  - `[hotkey-handler] ignored pressed because runtimeState=processing`
+  - then later `[hotkey-handler] ignored released because isRecording=false`
+- Root cause:
+  - `HotkeyMonitor` accepted any press callback and flipped internal `isPressed=true` before app state gating.
+  - When app rejected press at handler layer, monitor still owned a pressed lifecycle and consumed a later release.
+- Fix:
+  - Changed `HotkeyMonitor` press callback contract from `() -> Void` to `() -> Bool`.
+  - `AppController` now performs a synchronous bridge gate (`stopped/ready/isRecording`) before accepting press.
+  - If rejected, monitor does not enter pressed state and does not start watchdog.
+- Guardrail:
+  - Hotkey monitor must only transition to `pressed` after consumer explicitly accepts the press.
+
 ## Manual regression checklist (before release)
 
 - Permissions:

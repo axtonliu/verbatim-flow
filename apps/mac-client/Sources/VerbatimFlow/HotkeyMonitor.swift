@@ -4,7 +4,7 @@ import Foundation
 
 final class HotkeyMonitor {
     private let hotkey: Hotkey
-    private let onPressed: () -> Void
+    private let onPressed: () -> Bool
     private let onReleased: () -> Void
     private let releaseWatchdogInterval: TimeInterval = 0.12
     private let releaseWatchdogMismatchThreshold = 3
@@ -19,7 +19,7 @@ final class HotkeyMonitor {
     private var releaseWatchdog: DispatchSourceTimer?
     private var releaseWatchdogMismatchCount = 0
 
-    init(hotkey: Hotkey, onPressed: @escaping () -> Void, onReleased: @escaping () -> Void) {
+    init(hotkey: Hotkey, onPressed: @escaping () -> Bool, onReleased: @escaping () -> Void) {
         self.hotkey = hotkey
         self.onPressed = onPressed
         self.onReleased = onReleased
@@ -234,11 +234,16 @@ final class HotkeyMonitor {
         guard !isPressed else {
             return
         }
+        let accepted = onPressed()
+        guard accepted else {
+            RuntimeLogger.log("[hotkey-monitor] \(source) pressed ignored by consumer")
+            return
+        }
+
         isPressed = true
         releaseWatchdogMismatchCount = 0
         RuntimeLogger.log("[hotkey-monitor] \(source) pressed")
         startReleaseWatchdogIfNeeded()
-        onPressed()
     }
 
     private func transitionToReleased(source: String) {

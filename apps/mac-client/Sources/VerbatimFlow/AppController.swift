@@ -131,13 +131,28 @@ final class AppController {
                 RuntimeLogger.log("[hotkey-bridge] onPressed callback fired")
                 guard let self else {
                     RuntimeLogger.log("[hotkey-bridge] onPressed callback dropped: self released")
-                    return
+                    return false
                 }
+
+                guard Thread.isMainThread else {
+                    RuntimeLogger.log("[hotkey-bridge] onPressed callback dropped: not on main thread")
+                    return false
+                }
+
+                let accepted = MainActor.assumeIsolated {
+                    self.shouldAcceptHotkeyPress()
+                }
+                guard accepted else {
+                    RuntimeLogger.log("[hotkey-bridge] onPressed callback rejected by state gate")
+                    return false
+                }
+
                 Task { @MainActor in
                     RuntimeLogger.log("[hotkey-bridge] onPressed task entered")
                     await self.handleHotkeyPressed()
                     RuntimeLogger.log("[hotkey-bridge] onPressed task finished")
                 }
+                return true
             },
             onReleased: { [weak self] in
                 RuntimeLogger.log("[hotkey-bridge] onReleased callback fired")
@@ -384,6 +399,22 @@ final class AppController {
         if emitLog {
             emit("[stopped] Hotkey listener paused")
         }
+    }
+
+    private func shouldAcceptHotkeyPress() -> Bool {
+        guard runtimeState != .stopped else {
+            RuntimeLogger.log("[hotkey-handler] ignored pressed (bridge gate) because runtimeState=stopped")
+            return false
+        }
+        guard runtimeState == .ready else {
+            RuntimeLogger.log("[hotkey-handler] ignored pressed (bridge gate) because runtimeState=\(runtimeState)")
+            return false
+        }
+        guard !isRecording else {
+            RuntimeLogger.log("[hotkey-handler] ignored pressed (bridge gate) because isRecording=true")
+            return false
+        }
+        return true
     }
 
     private func handleHotkeyPressed() async {

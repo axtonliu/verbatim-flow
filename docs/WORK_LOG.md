@@ -1,5 +1,39 @@
 # VerbatimFlow Work Log
 
+## 2026-02-19 - Hotkey "press accepted" handshake fix
+
+### User report
+- Around 8:13, user saw another "press not released" incident.
+- Runtime logs showed:
+  - extra `flagsChanged pressed` while app was `processing`
+  - app correctly rejected it (`runtimeState=processing`)
+  - but monitor still treated it as active press lifecycle
+
+### Diagnosis
+- State gating existed only in `handleHotkeyPressed()`.
+- `HotkeyMonitor` had already set internal `isPressed = true` before app-side rejection.
+- This created a pseudo pressed lifecycle that later consumed release unexpectedly.
+
+### Fix implemented
+- `HotkeyMonitor`:
+  - `onPressed` callback changed to `() -> Bool`.
+  - only enters `pressed` state when callback returns `true`.
+  - logs `pressed ignored by consumer` when rejected.
+- `AppController`:
+  - added synchronous gate `shouldAcceptHotkeyPress()` in bridge callback.
+  - rejects press when state is not `ready` or when already recording.
+  - keeps async handler for actual recording start.
+
+### Validation
+- `swift test` passed after change.
+- Build confirms updated files compile:
+  - `HotkeyMonitor.swift`
+  - `AppController.swift`
+
+### Regression prevention rule
+- For hotkey lifecycle code, do not let monitor state transition precede consumer acceptance.
+- Keep this as a hard constraint for future menu/engine refactors.
+
 ## 2026-02-19 - Stability hardening after menu/HTTPS refactor
 
 ### Context
