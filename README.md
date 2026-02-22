@@ -105,6 +105,8 @@ OpenRouter for Clarify (keep transcription unchanged):
 VERBATIMFLOW_CLARIFY_PROVIDER=openrouter
 OPENROUTER_API_KEY=...
 VERBATIMFLOW_OPENAI_CLARIFY_MODEL=openai/gpt-4o-mini
+# optional route preference:
+# VERBATIMFLOW_OPENROUTER_PROVIDER_SORT=latency
 # optional:
 # VERBATIMFLOW_OPENROUTER_SITE_URL=https://your-site.example
 # VERBATIMFLOW_OPENROUTER_APP_NAME=VerbatimFlow

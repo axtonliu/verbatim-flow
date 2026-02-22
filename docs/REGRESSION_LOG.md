@@ -127,6 +127,7 @@
 - Change:
   - Added `VERBATIMFLOW_CLARIFY_PROVIDER` (`openai` / `openrouter`) and dedicated clarify auth/base-url overrides.
   - Added OpenRouter optional headers (`HTTP-Referer`, `X-Title`) support for clarify requests.
+  - Added OpenRouter optional provider sort hint (`price`/`latency`/`throughput`) for clarify requests.
   - Clarify success log now includes provider and model for easier runtime diagnostics.
 - Guardrail:
   - Transcription engine behavior remains unchanged.

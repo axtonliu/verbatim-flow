@@ -13,6 +13,7 @@ enum ClarifyRewriter {
         let endpoint: String
         let apiKey: String
         let extraHeaders: [String]
+        let openRouterProviderSort: String?
     }
 
     static func rewrite(text: String, localeIdentifier: String) throws -> ClarifyRewriteResult {
@@ -38,7 +39,7 @@ Rules:
 - Output plain text only. No markdown. No explanation.
 """
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "model": transport.model,
             "temperature": 0.1,
             "messages": [
@@ -46,6 +47,9 @@ Rules:
                 ["role": "user", "content": "locale=\(localeIdentifier)\n\n" + trimmed]
             ]
         ]
+        if transport.provider == "openrouter", let providerSort = transport.openRouterProviderSort {
+            payload["provider"] = ["sort": providerSort]
+        }
         let payloadData = try JSONSerialization.data(withJSONObject: payload, options: [])
 
         let process = Process()
@@ -184,7 +188,8 @@ Rules:
                 model: configuredModel ?? "gpt-4o-mini",
                 endpoint: try resolvedChatCompletionsEndpoint(rawBaseURL: rawBaseURL, allowInsecure: allowInsecure),
                 apiKey: apiKey,
-                extraHeaders: []
+                extraHeaders: [],
+                openRouterProviderSort: nil
             )
 
         case "openrouter":
@@ -227,12 +232,30 @@ Rules:
                 extraHeaders.append("X-Title: VerbatimFlow")
             }
 
+            let providerSortRaw = resolvedSetting(
+                key: "VERBATIMFLOW_OPENROUTER_PROVIDER_SORT",
+                environment: environment,
+                fileValues: fileValues
+            )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let providerSort: String?
+            switch providerSortRaw {
+            case "latency", "throughput", "price":
+                providerSort = providerSortRaw
+            case .none, .some(""):
+                providerSort = nil
+            case .some(let value):
+                throw AppError.openAIClarifyFailed(
+                    "Invalid VERBATIMFLOW_OPENROUTER_PROVIDER_SORT=\(value). Use price, latency, or throughput."
+                )
+            }
+
             return ClarifyTransportConfig(
                 provider: "openrouter",
                 model: configuredModel ?? "openai/gpt-4o-mini",
                 endpoint: try resolvedChatCompletionsEndpoint(rawBaseURL: rawBaseURL, allowInsecure: allowInsecure),
                 apiKey: apiKey,
-                extraHeaders: extraHeaders
+                extraHeaders: extraHeaders,
+                openRouterProviderSort: providerSort
             )
 
         default:

@@ -225,6 +225,8 @@
     - `VERBATIMFLOW_OPENAI_CLARIFY_MODEL`
   - Runtime log now includes provider on success:
     - `[clarify] llm rewrite applied provider=... model=...`
+  - Added optional OpenRouter route hint for speed/cost:
+    - `VERBATIMFLOW_OPENROUTER_PROVIDER_SORT=price|latency|throughput`
 - Compatibility:
   - Existing transcription path stays unchanged on OpenAI cloud.
   - OpenRouter integration is scoped to clarify rewrite path to avoid impacting current ASR stability.

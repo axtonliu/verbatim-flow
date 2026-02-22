@@ -32,6 +32,8 @@ OPENROUTER_API_KEY=
 # Optional OpenRouter attribution headers.
 VERBATIMFLOW_OPENROUTER_SITE_URL=
 VERBATIMFLOW_OPENROUTER_APP_NAME=VerbatimFlow
+# Optional OpenRouter routing preference for clarify: price | latency | throughput
+# VERBATIMFLOW_OPENROUTER_PROVIDER_SORT=latency
 # For security, only https:// base URLs are allowed by default.
 # For localhost debugging only, set VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL=1.
 VERBATIMFLOW_OPENAI_BASE_URL=https://api.openai.com/v1
