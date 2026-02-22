@@ -15,3 +15,11 @@ apps/mac-client/.build/
 tmp/
 docs/WORK_LOG.md
 docs/REGRESSION_LOG.md
+
+# Security defensive rules
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*
+secrets*

@@ -48,7 +48,7 @@ VerbatimFlow is a menu bar dictation utility that transcribes speech and injects
 
 ## Features
 
-- **Menu bar app** — runs as `VF` in the macOS menu bar with state indicators (`VF●` recording, `VF…` processing, `VF⏸` paused)
+- **Menu bar app** — lives in the macOS menu bar as a V-mark icon with real-time state badges (● recording, ○ processing, — paused)
 - **Dual hotkey** — primary hotkey uses current mode; secondary hotkey (`Cmd+Shift+Space`) forces Clarify for one segment
 - **Engine switching** — Apple Speech / Whisper (tiny–large-v3) / OpenAI Cloud (gpt-4o-mini-transcribe, whisper-1)
 - **Clarify via OpenAI or OpenRouter** — configurable provider, model, and API keys
@@ -86,18 +86,6 @@ open "apps/mac-client/dist/VerbatimFlow-installer.dmg"
 ```
 
 The DMG provides drag-and-drop installation to `/Applications`.
-
-### Python MVP (Alternative)
-
-A Python-based MVP is also available for quick testing:
-
-```bash
-cd apps/mac-client/python
-./scripts/setup_env.sh
-./scripts/run.sh --mode raw --model small
-```
-
-See [`apps/mac-client/python/README.md`](apps/mac-client/python/README.md) for details.
 
 ## Usage
 
@@ -178,7 +166,6 @@ verbatim-flow/
 │   │   └── ...
 │   ├── Tests/VerbatimFlowTests/ # Unit tests
 │   ├── Package.swift
-│   ├── python/                  # Python MVP alternative
 │   └── dist/                    # Build output (.app, .dmg)
 ├── packages/                    # Shared package stubs
 │   ├── asr-pipeline/
@@ -211,7 +198,7 @@ verbatim-flow/
 ### Hotkey
 
 - **Hotkey not responding:** Check that no other app is capturing the same shortcut. Try switching to a different preset via the Settings menu.
-- **Menu bar shows `VF⏸`:** Hotkey listener is paused. Click **Resume Listening** in the menu.
+- **Menu bar icon shows a pause dash:** Hotkey listener is paused. Click **Resume Listening** in the menu.
 
 ### Clarify Mode
 

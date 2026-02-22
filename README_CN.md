@@ -61,7 +61,7 @@ VerbatimFlow 是一个 macOS 菜单栏语音输入工具，转写语音后直接
 
 ### 完整功能列表
 
-- **菜单栏应用** — 以 `VF` 驻留在 macOS 菜单栏，状态指示器实时反馈（`VF●` 录音中、`VF…` 处理中、`VF⏸` 已暂停）
+- **菜单栏应用** — 以 V 形图标驻留在 macOS 菜单栏，实时状态徽标（● 录音中、○ 处理中、— 已暂停）
 - **双热键** — 主热键使用当前模式；副热键（`Cmd+Shift+Space`）临时强制 Clarify 模式，仅作用一次
 - **热键预设切换** — 支持 `Ctrl+Shift+Space` / `Option+Space` / `Fn`，菜单内切换无需重启
 - **多引擎运行时切换** — Apple Speech / Whisper / OpenAI 云端，菜单内一键切换
@@ -102,16 +102,6 @@ open "apps/mac-client/dist/VerbatimFlow.app"
 ./scripts/build-installer-dmg.sh
 open "apps/mac-client/dist/VerbatimFlow-installer.dmg"
 ```
-
-### 方式三：Python MVP（快速体验）
-
-```bash
-cd apps/mac-client/python
-./scripts/setup_env.sh
-./scripts/run.sh --mode raw --model small
-```
-
-详见 [`apps/mac-client/python/README.md`](apps/mac-client/python/README.md)。
 
 ## 使用方法
 
@@ -182,7 +172,6 @@ verbatim-flow/
 │   │   └── ...
 │   ├── Tests/VerbatimFlowTests/ # 单元测试
 │   ├── Package.swift
-│   ├── python/                  # Python MVP
 │   └── dist/                    # 构建产物（.app, .dmg）
 ├── packages/                    # 共享包占位
 ├── scripts/
@@ -209,7 +198,7 @@ verbatim-flow/
 ### 热键问题
 
 - **热键无响应：** 检查是否有其他 App 占用了相同快捷键。尝试通过 Settings 菜单切换到其他预设。
-- **菜单栏显示 `VF⏸`：** 热键监听已暂停，点击菜单中的 **Resume Listening**。
+- **菜单栏图标显示暂停横线：** 热键监听已暂停，点击菜单中的 **Resume Listening**。
 
 ### Clarify 模式
 
