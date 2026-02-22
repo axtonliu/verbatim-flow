@@ -564,13 +564,13 @@ final class AppController {
                 let textToRewrite = finalText
                 let localeToRewrite = localeIdentifier
                 let rewritten = try await Task.detached(priority: .userInitiated) {
-                    try ClarifyRewriter.rewriteWithOpenAI(
+                    try ClarifyRewriter.rewrite(
                         text: textToRewrite,
                         localeIdentifier: localeToRewrite
                     )
                 }.value
                 finalText = rewritten.text
-                emit("[clarify] llm rewrite applied model=\(rewritten.model)")
+                emit("[clarify] llm rewrite applied provider=\(rewritten.provider) model=\(rewritten.model)")
             } catch {
                 emit("[clarify] llm rewrite unavailable, fallback to rules: \(error)")
             }

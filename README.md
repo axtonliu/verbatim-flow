@@ -7,7 +7,7 @@ A fast dictation input app prototype for macOS.
 - Preserve original wording by default (no unsolicited rewriting).
 - Allow optional formatting-only cleanup (punctuation, spacing, case).
 - Provide optional `Clarify` mode for concise, cleaner paragraph output.
-- `Clarify` uses OpenAI LLM rewrite (`VERBATIMFLOW_OPENAI_CLARIFY_MODEL`) and falls back safely if unavailable.
+- `Clarify` uses LLM rewrite with configurable provider (`openai` or `openrouter`) and falls back safely if unavailable.
 
 ## Monorepo layout
 - `apps/mac-client/python`: runnable Python MVP (hotkey, recording, transcription, guard, inject).
@@ -48,7 +48,10 @@ Native app launches as a menu bar item (`VF`) with most controls grouped under `
 - switching recognition engine (`Apple Speech` / `Whisper` / `OpenAI Cloud`)
 - switching Whisper model (`tiny` / `base` / `small` / `medium` / `large-v3`)
 - switching OpenAI model (`gpt-4o-mini-transcribe` / `whisper-1`)
-- clarify rewrite model is configured separately in `openai.env` (`VERBATIMFLOW_OPENAI_CLARIFY_MODEL`)
+- clarify rewrite is configured separately in `openai.env`:
+  - provider: `VERBATIMFLOW_CLARIFY_PROVIDER=openai|openrouter`
+  - model: `VERBATIMFLOW_OPENAI_CLARIFY_MODEL`
+  - optional dedicated key/base: `VERBATIMFLOW_CLARIFY_API_KEY`, `VERBATIMFLOW_CLARIFY_BASE_URL`
 - switching language (`System Default` / `zh-Hans` / `en-US`)
 - requesting microphone/speech permission
 - changing hotkey preset in-app
@@ -95,4 +98,14 @@ Terminology dictionary file:
 OpenAI cloud settings file:
 ```bash
 ~/Library/Application\ Support/VerbatimFlow/openai.env
+```
+
+OpenRouter for Clarify (keep transcription unchanged):
+```bash
+VERBATIMFLOW_CLARIFY_PROVIDER=openrouter
+OPENROUTER_API_KEY=...
+VERBATIMFLOW_OPENAI_CLARIFY_MODEL=openai/gpt-4o-mini
+# optional:
+# VERBATIMFLOW_OPENROUTER_SITE_URL=https://your-site.example
+# VERBATIMFLOW_OPENROUTER_APP_NAME=VerbatimFlow
 ```

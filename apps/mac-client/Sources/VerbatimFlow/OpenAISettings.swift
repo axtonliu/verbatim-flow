@@ -15,8 +15,23 @@ enum OpenAISettings {
 # You can keep default model for speed, or switch to a larger one.
 OPENAI_API_KEY=
 VERBATIMFLOW_OPENAI_MODEL=gpt-4o-mini-transcribe
-# Clarify rewrite model (used by clarify mode when engine is OpenAI Cloud).
+# Clarify rewrite mode:
+# provider=openai (default) or provider=openrouter
+VERBATIMFLOW_CLARIFY_PROVIDER=openai
+# Optional dedicated key/base-url for clarify only.
+# If VERBATIMFLOW_CLARIFY_API_KEY is empty:
+# - provider=openai    -> fallback OPENAI_API_KEY
+# - provider=openrouter -> fallback OPENROUTER_API_KEY
+VERBATIMFLOW_CLARIFY_API_KEY=
+# Optional override, must be OpenAI-compatible /chat/completions base URL.
+# VERBATIMFLOW_CLARIFY_BASE_URL=https://api.openai.com/v1
+# Clarify rewrite model.
 VERBATIMFLOW_OPENAI_CLARIFY_MODEL=gpt-4o-mini
+# OpenRouter key (only needed when provider=openrouter and no clarify key override).
+OPENROUTER_API_KEY=
+# Optional OpenRouter attribution headers.
+VERBATIMFLOW_OPENROUTER_SITE_URL=
+VERBATIMFLOW_OPENROUTER_APP_NAME=VerbatimFlow
 # For security, only https:// base URLs are allowed by default.
 # For localhost debugging only, set VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL=1.
 VERBATIMFLOW_OPENAI_BASE_URL=https://api.openai.com/v1

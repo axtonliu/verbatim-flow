@@ -120,6 +120,18 @@
   - Clarify quality should not depend on selected ASR engine.
   - Clarify failure must never break insertion; fallback to existing normalized text.
 
+## 2026-02-22: Clarify adds provider routing (OpenAI/OpenRouter)
+
+- Goal:
+  - Keep clarify model choice flexible for latency/cost tuning without breaking ASR path.
+- Change:
+  - Added `VERBATIMFLOW_CLARIFY_PROVIDER` (`openai` / `openrouter`) and dedicated clarify auth/base-url overrides.
+  - Added OpenRouter optional headers (`HTTP-Referer`, `X-Title`) support for clarify requests.
+  - Clarify success log now includes provider and model for easier runtime diagnostics.
+- Guardrail:
+  - Transcription engine behavior remains unchanged.
+  - Clarify provider switch must not alter insertion pipeline or hotkey lifecycle.
+
 ## Manual regression checklist (before release)
 
 - Permissions:

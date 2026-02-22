@@ -3,34 +3,28 @@ import Foundation
 struct ClarifyRewriteResult: Sendable {
     let text: String
     let model: String
+    let provider: String
 }
 
 enum ClarifyRewriter {
-    static func rewriteWithOpenAI(text: String, localeIdentifier: String) throws -> ClarifyRewriteResult {
+    private struct ClarifyTransportConfig: Sendable {
+        let provider: String
+        let model: String
+        let endpoint: String
+        let apiKey: String
+        let extraHeaders: [String]
+    }
+
+    static func rewrite(text: String, localeIdentifier: String) throws -> ClarifyRewriteResult {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return ClarifyRewriteResult(text: "", model: "")
+            return ClarifyRewriteResult(text: "", model: "", provider: "")
         }
 
         let env = ProcessInfo.processInfo.environment
         let fileValues = OpenAISettings.loadValues()
-
-        let apiKey = resolvedSetting(
-            key: "OPENAI_API_KEY",
-            environment: env,
-            fileValues: fileValues
-        )
-        guard let apiKey, !apiKey.isEmpty else {
-            throw AppError.openAIAPIKeyMissing
-        }
-
-        let model = resolvedSetting(
-            key: "VERBATIMFLOW_OPENAI_CLARIFY_MODEL",
-            environment: env,
-            fileValues: fileValues
-        ) ?? "gpt-4o-mini"
-        let endpoint = try resolvedChatCompletionsEndpoint(environment: env, fileValues: fileValues)
-        let usesTLS = endpoint.lowercased().hasPrefix("https://")
+        let transport = try resolvedClarifyTransport(environment: env, fileValues: fileValues)
+        let usesTLS = transport.endpoint.lowercased().hasPrefix("https://")
 
         let systemPrompt = """
 You are VerbatimFlow Clarify mode.
@@ -45,7 +39,7 @@ Rules:
 """
 
         let payload: [String: Any] = [
-            "model": model,
+            "model": transport.model,
             "temperature": 0.1,
             "messages": [
                 ["role": "system", "content": systemPrompt],
@@ -67,11 +61,18 @@ Rules:
         }
         arguments.append(contentsOf: [
             "-X", "POST",
-            endpoint,
-            "-H", "Authorization: Bearer \(apiKey)",
-            "-H", "Content-Type: application/json",
-            "--data-binary", "@-"
+            transport.endpoint
         ])
+
+        let headers = [
+            "Authorization: Bearer \(transport.apiKey)",
+            "Content-Type: application/json"
+        ] + transport.extraHeaders
+        for header in headers {
+            arguments.append(contentsOf: ["-H", header])
+        }
+
+        arguments.append(contentsOf: ["--data-binary", "@-"])
         process.arguments = arguments
 
         let outputPipe = Pipe()
@@ -124,7 +125,121 @@ Rules:
             throw AppError.openAIClarifyFailed("Clarify response is empty")
         }
 
-        return ClarifyRewriteResult(text: rewritten, model: model)
+        return ClarifyRewriteResult(
+            text: rewritten,
+            model: transport.model,
+            provider: transport.provider
+        )
+    }
+
+    private static func resolvedClarifyTransport(
+        environment: [String: String],
+        fileValues: [String: String]
+    ) throws -> ClarifyTransportConfig {
+        let providerRaw = (resolvedSetting(
+            key: "VERBATIMFLOW_CLARIFY_PROVIDER",
+            environment: environment,
+            fileValues: fileValues
+        ) ?? "openai").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        let configuredModel = resolvedSetting(
+            key: "VERBATIMFLOW_OPENAI_CLARIFY_MODEL",
+            environment: environment,
+            fileValues: fileValues
+        )
+
+        let allowInsecure = parseBooleanSetting(resolvedSetting(
+            key: "VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL",
+            environment: environment,
+            fileValues: fileValues
+        ))
+
+        switch providerRaw {
+        case "openai":
+            let apiKey = resolvedSetting(
+                key: "VERBATIMFLOW_CLARIFY_API_KEY",
+                environment: environment,
+                fileValues: fileValues
+            ) ?? resolvedSetting(
+                key: "OPENAI_API_KEY",
+                environment: environment,
+                fileValues: fileValues
+            )
+            guard let apiKey, !apiKey.isEmpty else {
+                throw AppError.openAIAPIKeyMissing
+            }
+
+            let rawBaseURL = resolvedSetting(
+                key: "VERBATIMFLOW_CLARIFY_BASE_URL",
+                environment: environment,
+                fileValues: fileValues
+            ) ?? resolvedSetting(
+                key: "VERBATIMFLOW_OPENAI_BASE_URL",
+                environment: environment,
+                fileValues: fileValues
+            ) ?? "https://api.openai.com/v1"
+
+            return ClarifyTransportConfig(
+                provider: "openai",
+                model: configuredModel ?? "gpt-4o-mini",
+                endpoint: try resolvedChatCompletionsEndpoint(rawBaseURL: rawBaseURL, allowInsecure: allowInsecure),
+                apiKey: apiKey,
+                extraHeaders: []
+            )
+
+        case "openrouter":
+            let apiKey = resolvedSetting(
+                key: "VERBATIMFLOW_CLARIFY_API_KEY",
+                environment: environment,
+                fileValues: fileValues
+            ) ?? resolvedSetting(
+                key: "OPENROUTER_API_KEY",
+                environment: environment,
+                fileValues: fileValues
+            )
+            guard let apiKey, !apiKey.isEmpty else {
+                throw AppError.openAIClarifyFailed(
+                    "OPENROUTER_API_KEY is missing. Set OPENROUTER_API_KEY or VERBATIMFLOW_CLARIFY_API_KEY."
+                )
+            }
+
+            let rawBaseURL = resolvedSetting(
+                key: "VERBATIMFLOW_CLARIFY_BASE_URL",
+                environment: environment,
+                fileValues: fileValues
+            ) ?? "https://openrouter.ai/api/v1"
+
+            var extraHeaders: [String] = []
+            if let siteURL = resolvedSetting(
+                key: "VERBATIMFLOW_OPENROUTER_SITE_URL",
+                environment: environment,
+                fileValues: fileValues
+            ), !siteURL.isEmpty {
+                extraHeaders.append("HTTP-Referer: \(siteURL)")
+            }
+            if let appName = resolvedSetting(
+                key: "VERBATIMFLOW_OPENROUTER_APP_NAME",
+                environment: environment,
+                fileValues: fileValues
+            ), !appName.isEmpty {
+                extraHeaders.append("X-Title: \(appName)")
+            } else {
+                extraHeaders.append("X-Title: VerbatimFlow")
+            }
+
+            return ClarifyTransportConfig(
+                provider: "openrouter",
+                model: configuredModel ?? "openai/gpt-4o-mini",
+                endpoint: try resolvedChatCompletionsEndpoint(rawBaseURL: rawBaseURL, allowInsecure: allowInsecure),
+                apiKey: apiKey,
+                extraHeaders: extraHeaders
+            )
+
+        default:
+            throw AppError.openAIClarifyFailed(
+                "Unsupported VERBATIMFLOW_CLARIFY_PROVIDER=\(providerRaw). Use openai or openrouter."
+            )
+        }
     }
 
     private static func resolvedSetting(
@@ -154,31 +269,18 @@ Rules:
         }
     }
 
-    private static func resolvedChatCompletionsEndpoint(
-        environment: [String: String],
-        fileValues: [String: String]
-    ) throws -> String {
-        let rawBaseURL = resolvedSetting(
-            key: "VERBATIMFLOW_OPENAI_BASE_URL",
-            environment: environment,
-            fileValues: fileValues
-        ) ?? "https://api.openai.com/v1"
+    private static func resolvedChatCompletionsEndpoint(rawBaseURL: String, allowInsecure: Bool) throws -> String {
         guard let baseURL = URL(string: rawBaseURL), let scheme = baseURL.scheme?.lowercased(), !scheme.isEmpty else {
-            throw AppError.openAIClarifyFailed("Invalid VERBATIMFLOW_OPENAI_BASE_URL: \(rawBaseURL)")
+            throw AppError.openAIClarifyFailed("Invalid clarify base URL: \(rawBaseURL)")
         }
 
-        let allowInsecure = parseBooleanSetting(resolvedSetting(
-            key: "VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL",
-            environment: environment,
-            fileValues: fileValues
-        ))
         if scheme != "https" {
             guard allowInsecure else {
                 throw AppError.openAIClarifyFailed(
-                    "VERBATIMFLOW_OPENAI_BASE_URL must use https:// (set VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL=1 only for local dev)."
+                    "Clarify base URL must use https:// (set VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL=1 only for local dev)."
                 )
             }
-            RuntimeLogger.log("[openai] insecure base url enabled via VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL")
+            RuntimeLogger.log("[clarify] insecure base url enabled via VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL")
         }
 
         return baseURL

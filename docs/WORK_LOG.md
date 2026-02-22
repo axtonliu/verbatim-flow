@@ -210,3 +210,21 @@
     - `VERBATIMFLOW_OPENAI_CLARIFY_MODEL` in `openai.env`
 - Fallback policy:
   - If clarify LLM call fails (network/key/rate-limit/response), keep existing normalized text and continue insertion.
+
+### Todo 2 follow-up (clarify provider routing)
+- User feedback:
+  - Clarify quality depends on LLM, but model latency/cost should be tunable.
+  - Requested OpenRouter support for easier model switching.
+- Implementation:
+  - Added provider routing for clarify only:
+    - `VERBATIMFLOW_CLARIFY_PROVIDER=openai|openrouter`
+    - `VERBATIMFLOW_CLARIFY_API_KEY` (optional dedicated clarify key)
+    - `VERBATIMFLOW_CLARIFY_BASE_URL` (optional dedicated clarify base URL)
+    - `OPENROUTER_API_KEY` and optional `VERBATIMFLOW_OPENROUTER_SITE_URL`, `VERBATIMFLOW_OPENROUTER_APP_NAME`
+  - Clarify model key remains:
+    - `VERBATIMFLOW_OPENAI_CLARIFY_MODEL`
+  - Runtime log now includes provider on success:
+    - `[clarify] llm rewrite applied provider=... model=...`
+- Compatibility:
+  - Existing transcription path stays unchanged on OpenAI cloud.
+  - OpenRouter integration is scoped to clarify rewrite path to avoid impacting current ASR stability.
