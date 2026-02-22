@@ -7,6 +7,7 @@ A fast dictation input app prototype for macOS.
 - Preserve original wording by default (no unsolicited rewriting).
 - Allow optional formatting-only cleanup (punctuation, spacing, case).
 - Provide optional `Clarify` mode for concise, cleaner paragraph output.
+- `Clarify` uses OpenAI LLM rewrite (`VERBATIMFLOW_OPENAI_CLARIFY_MODEL`) and falls back safely if unavailable.
 
 ## Monorepo layout
 - `apps/mac-client/python`: runnable Python MVP (hotkey, recording, transcription, guard, inject).
@@ -47,6 +48,7 @@ Native app launches as a menu bar item (`VF`) with most controls grouped under `
 - switching recognition engine (`Apple Speech` / `Whisper` / `OpenAI Cloud`)
 - switching Whisper model (`tiny` / `base` / `small` / `medium` / `large-v3`)
 - switching OpenAI model (`gpt-4o-mini-transcribe` / `whisper-1`)
+- clarify rewrite model is configured separately in `openai.env` (`VERBATIMFLOW_OPENAI_CLARIFY_MODEL`)
 - switching language (`System Default` / `zh-Hans` / `en-US`)
 - requesting microphone/speech permission
 - changing hotkey preset in-app

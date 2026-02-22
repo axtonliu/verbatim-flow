@@ -374,7 +374,7 @@ final class AppController {
 
             do {
                 let raw = try await self.transcriber.retryLastFailedRecording()
-                self.commitTranscript(raw, preferredTarget: retryTarget)
+                await self.commitTranscript(raw, preferredTarget: retryTarget)
             } catch {
                 self.emit("[error] Retry last audio failed: \(error)")
             }
@@ -485,7 +485,7 @@ final class AppController {
             runtimeState = .ready
             return
         }
-        commitTranscript(raw, preferredTarget: pendingInsertTarget)
+        await commitTranscript(raw, preferredTarget: pendingInsertTarget)
         pendingInsertTarget = nil
         pendingSegmentModeOverride = nil
         runtimeState = .ready
@@ -501,7 +501,7 @@ final class AppController {
         onRetriableAudioAvailabilityChanged?(hasRetriableAudio)
     }
 
-    private func commitTranscript(_ raw: String, preferredTarget: PendingInsertTarget?) {
+    private func commitTranscript(_ raw: String, preferredTarget: PendingInsertTarget?) async {
         let defaultSegmentMode = pendingSegmentModeOverride ?? mode
         if let override = pendingSegmentModeOverride, override != mode {
             emit("[segment-mode] current segment uses \(override.rawValue) via secondary hotkey")
@@ -546,7 +546,7 @@ final class AppController {
             localeIdentifier: localeIdentifier,
             vocabularyHints: DictationVocabulary.fuzzyCorrectionTerms(customHints: terminologyRules.hints)
         )
-        let finalText = mixedEnhancement.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var finalText = mixedEnhancement.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !finalText.isEmpty else {
             emit("[skip] Empty transcript after terminology normalization")
             return
@@ -557,6 +557,23 @@ final class AppController {
         }
         if !mixedEnhancement.appliedRules.isEmpty {
             emit("[mixed-language] applied: \(mixedEnhancement.appliedRules.joined(separator: ", "))")
+        }
+
+        if commandParsed.effectiveMode == .clarify {
+            do {
+                let textToRewrite = finalText
+                let localeToRewrite = localeIdentifier
+                let rewritten = try await Task.detached(priority: .userInitiated) {
+                    try ClarifyRewriter.rewriteWithOpenAI(
+                        text: textToRewrite,
+                        localeIdentifier: localeToRewrite
+                    )
+                }.value
+                finalText = rewritten.text
+                emit("[clarify] llm rewrite applied model=\(rewritten.model)")
+            } catch {
+                emit("[clarify] llm rewrite unavailable, fallback to rules: \(error)")
+            }
         }
 
         onTranscriptCommitted?(finalText)

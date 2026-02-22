@@ -9,6 +9,7 @@ enum AppError: Error, CustomStringConvertible {
     case whisperTranscriptionFailed(String)
     case openAIAPIKeyMissing
     case openAITranscriptionFailed(String)
+    case openAIClarifyFailed(String)
     case retryAudioUnavailable
     case retryAudioUnsupportedEngine(String)
     case eventSourceCreationFailed
@@ -39,6 +40,11 @@ enum AppError: Error, CustomStringConvertible {
                 return "OpenAI Cloud transcription failed"
             }
             return "OpenAI Cloud transcription failed: \(details)"
+        case .openAIClarifyFailed(let details):
+            if details.isEmpty {
+                return "OpenAI clarify rewrite failed"
+            }
+            return "OpenAI clarify rewrite failed: \(details)"
         case .retryAudioUnavailable:
             return "No failed recording is available to retry"
         case .retryAudioUnsupportedEngine(let engine):

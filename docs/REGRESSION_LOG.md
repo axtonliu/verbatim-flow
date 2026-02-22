@@ -106,6 +106,20 @@
   - Segment mode should be determined at key-down whenever possible.
   - Avoid command-word dependency in free dictation path.
 
+## 2026-02-22: Clarify mode upgraded to LLM rewrite
+
+- Symptom:
+  - Secondary clarify hotkey path fired, but output looked too similar to standard mode.
+- Root cause:
+  - Clarify output relied on local cleanup behavior and did not consistently run an LLM rewrite path for all engines.
+- Fix:
+  - Added OpenAI clarify rewriter and always execute it for `clarify` segments.
+  - Decoupled clarify rewrite from transcription engine selection (Apple/Whisper/OpenAI all can use clarify rewrite).
+  - Run rewrite in detached task to avoid main-actor blocking during network roundtrip.
+- Guardrail:
+  - Clarify quality should not depend on selected ASR engine.
+  - Clarify failure must never break insertion; fallback to existing normalized text.
+
 ## Manual regression checklist (before release)
 
 - Permissions:

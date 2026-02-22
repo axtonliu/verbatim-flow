@@ -195,3 +195,18 @@
 - Result:
   - Reduced accidental command behavior in natural speech.
   - Mode selection becomes deterministic at key-down time.
+
+### Todo 2 follow-up (clarify quality baseline)
+- User feedback:
+  - Secondary clarify hotkey triggered correctly, but output quality was too close to `Standard` mode.
+  - Clarify must be model-based (LLM), not only local text rules.
+- Implementation:
+  - Added OpenAI-backed clarify rewrite stage:
+    - `apps/mac-client/Sources/VerbatimFlow/ClarifyRewriter.swift`
+  - `AppController.commitTranscript` now always attempts LLM rewrite for `clarify` segments (independent from transcription engine).
+  - LLM rewrite is executed in a detached task to avoid blocking main actor while network request is in flight.
+  - Added explicit clarify error type and settings template key:
+    - `AppError.openAIClarifyFailed`
+    - `VERBATIMFLOW_OPENAI_CLARIFY_MODEL` in `openai.env`
+- Fallback policy:
+  - If clarify LLM call fails (network/key/rate-limit/response), keep existing normalized text and continue insertion.

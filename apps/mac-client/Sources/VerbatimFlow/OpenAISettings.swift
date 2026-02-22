@@ -15,6 +15,8 @@ enum OpenAISettings {
 # You can keep default model for speed, or switch to a larger one.
 OPENAI_API_KEY=
 VERBATIMFLOW_OPENAI_MODEL=gpt-4o-mini-transcribe
+# Clarify rewrite model (used by clarify mode when engine is OpenAI Cloud).
+VERBATIMFLOW_OPENAI_CLARIFY_MODEL=gpt-4o-mini
 # For security, only https:// base URLs are allowed by default.
 # For localhost debugging only, set VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL=1.
 VERBATIMFLOW_OPENAI_BASE_URL=https://api.openai.com/v1
