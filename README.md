@@ -4,6 +4,8 @@
 [![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange.svg)](#status)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-blue.svg)](#)
 
+**[中文文档](README_CN.md)**
+
 A fast, zero-rewrite dictation app for macOS — your words, exactly as spoken.
 
 > **Next Step:** Want to build your own AI-powered tools? Check out the [Agent Skills Resource Library](https://www.axtonliu.ai/agent-skills) (includes slides, PDF, diagnostics)
