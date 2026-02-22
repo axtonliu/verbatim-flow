@@ -220,14 +220,6 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private var permissionRequestFallbackWorkItem: DispatchWorkItem?
     private var shouldRestoreAccessoryAfterPermissionRequest = false
     private var aboutWindowController: NSWindowController?
-    private lazy var menuBarBaseIcon: NSImage? = {
-        guard let path = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
-              let image = NSImage(contentsOfFile: path) else {
-            return nil
-        }
-        image.isTemplate = false
-        return image
-    }()
     private let transcriptDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
@@ -474,76 +466,77 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     private func applyStatusIcon(for state: RuntimeState) {
         guard let button = statusItem.button else { return }
-        if let image = makeMenuBarIcon(for: state) {
-            button.image = image
-            button.title = ""
-            return
-        }
-
-        // Fallback if icon resource is unavailable.
-        button.image = nil
-        switch state {
-        case .stopped:
-            button.title = "VF⏸"
-        case .ready:
-            button.title = "VF"
-        case .recording:
-            button.title = "VF●"
-        case .processing:
-            button.title = "VF…"
-        }
+        button.image = makeMenuBarIcon(for: state)
+        button.title = ""
     }
 
-    private func makeMenuBarIcon(for state: RuntimeState) -> NSImage? {
-        guard let base = menuBarBaseIcon else {
-            return nil
-        }
-
+    private func makeMenuBarIcon(for state: RuntimeState) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let canvas = NSImage(size: size)
         canvas.lockFocus()
         defer { canvas.unlockFocus() }
 
-        base.draw(
-            in: NSRect(origin: .zero, size: size),
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1.0
+        NSColor.clear.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+
+        // Draw a template monochrome V mark so menu bar appearance matches
+        // native status items (single-color glyph on transparent background).
+        NSColor.white.setFill()
+        drawMenuBarCapsule(
+            center: CGPoint(x: 7.0, y: 9.1),
+            size: CGSize(width: 3.4, height: 10.6),
+            angleDegrees: 35
+        )
+        drawMenuBarCapsule(
+            center: CGPoint(x: 10.9, y: 9.1),
+            size: CGSize(width: 3.4, height: 10.6),
+            angleDegrees: -35
         )
 
-        let badgeColor: NSColor?
         switch state {
         case .ready:
-            badgeColor = nil
+            break
         case .stopped:
-            badgeColor = NSColor.systemGray
-        case .recording:
-            badgeColor = NSColor.systemRed
-        case .processing:
-            badgeColor = NSColor.systemOrange
-        }
-
-        if let badgeColor {
-            let diameter: CGFloat = 5.5
-            let inset: CGFloat = 0.7
-            let badgeRect = NSRect(
-                x: size.width - diameter - inset,
-                y: inset,
-                width: diameter,
-                height: diameter
+            // Paused: short horizontal dash.
+            let dashRect = NSRect(x: 12.8, y: 1.3, width: 3.8, height: 1.4)
+            let dashPath = NSBezierPath(
+                roundedRect: dashRect,
+                xRadius: dashRect.height / 2,
+                yRadius: dashRect.height / 2
             )
-            let badgePath = NSBezierPath(ovalIn: badgeRect)
-            NSColor.white.setFill()
-            badgePath.fill()
-
-            let innerRect = badgeRect.insetBy(dx: 0.9, dy: 0.9)
-            NSBezierPath(ovalIn: innerRect).fill()
-            badgeColor.setFill()
-            NSBezierPath(ovalIn: innerRect).fill()
+            dashPath.fill()
+        case .recording:
+            // Recording: filled dot.
+            NSBezierPath(ovalIn: NSRect(x: 13.1, y: 0.9, width: 3.6, height: 3.6)).fill()
+        case .processing:
+            // Processing: hollow ring.
+            let ring = NSBezierPath(ovalIn: NSRect(x: 13.0, y: 0.8, width: 3.8, height: 3.8))
+            ring.lineWidth = 1.0
+            ring.stroke()
         }
 
-        canvas.isTemplate = false
+        canvas.isTemplate = true
         return canvas
+    }
+
+    private func drawMenuBarCapsule(center: CGPoint, size: CGSize, angleDegrees: CGFloat) {
+        let rect = NSRect(
+            x: -size.width / 2,
+            y: -size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        let path = NSBezierPath(
+            roundedRect: rect,
+            xRadius: size.width / 2,
+            yRadius: size.width / 2
+        )
+
+        var transform = AffineTransform.identity
+        transform.translate(x: center.x, y: center.y)
+        transform.rotate(byDegrees: angleDegrees)
+        path.transform(using: transform)
+        path.fill()
     }
 
     private func refreshModeChecks() {
