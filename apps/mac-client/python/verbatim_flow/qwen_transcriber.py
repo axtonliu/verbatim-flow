@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import sys
 
 
@@ -24,15 +25,31 @@ _LANGUAGE_MAP: dict[str, str] = {
     "ja": "Japanese",
 }
 
-# Languages whose output should be converted to Traditional Chinese.
-_CHINESE_LANGUAGES = {"Chinese", "Cantonese"}
+# Languages whose model output may need Simplified → Traditional conversion.
+_TRADITIONAL_CHINESE_LANGUAGES = {"Chinese", "Cantonese"}
+
+# Locale suffixes that indicate Traditional Chinese.
+_TRADITIONAL_SUFFIXES = {"hant", "tw", "hk", "mo"}
 
 
-def _resolve_language(code: str | None) -> str | None:
+def _resolve_language(code: str | None) -> tuple[str | None, bool | None]:
+    """Resolve locale code to (model_language, should_convert_to_traditional).
+
+    Returns (None, None) when code is None (auto-detect mode).
+    """
     if code is None:
-        return None
-    prefix = code.split("-")[0].split("_")[0].lower()
-    return _LANGUAGE_MAP.get(prefix)
+        return (None, None)
+    parts = code.replace("_", "-").lower().split("-")
+    prefix = parts[0]
+    model_lang = _LANGUAGE_MAP.get(prefix)
+    if model_lang is None:
+        return (model_lang, False)
+    if model_lang in _TRADITIONAL_CHINESE_LANGUAGES:
+        has_traditional_suffix = any(p in _TRADITIONAL_SUFFIXES for p in parts[1:])
+        has_simplified_suffix = any(p in {"hans", "cn"} for p in parts[1:])
+        convert = has_traditional_suffix or (not has_simplified_suffix)
+        return (model_lang, convert)
+    return (model_lang, False)
 
 
 def _contains_cjk(text: str) -> bool:
@@ -48,6 +65,12 @@ def _convert_s2t(text: str) -> str:
         return OpenCC("s2t").convert(text)
     except ImportError:
         return text
+
+
+def _model_cache_path(model_id: str) -> Path:
+    """Return expected HuggingFace cache directory for a model."""
+    org_model = model_id.replace("/", "--")
+    return Path.home() / ".cache" / "huggingface" / "hub" / f"models--{org_model}"
 
 
 def _patch_auto_detect(model) -> None:
@@ -85,39 +108,51 @@ class QwenTranscriber:
 
     def _ensure_model(self):
         if self._model is None:
+            import os
             from mlx_audio.stt import load
+
+            cached = _model_cache_path(self.model_name).exists()
+            if not cached:
+                os.environ["HF_HUB_OFFLINE"] = "0"
+                print(f"[info] Downloading model {self.model_name}...", file=sys.stderr)
 
             self._model = load(self.model_name)
             _patch_auto_detect(self._model)
 
-    def transcribe(self, audio_path: str, language: str | None = None) -> TranscriptResult:
-        self._ensure_model()
-        lang = _resolve_language(language)
+            if not cached:
+                os.environ["HF_HUB_OFFLINE"] = "1"
 
-        # Pass "__auto__" sentinel so our patched _build_prompt omits the
-        # language directive, enabling Qwen3-ASR auto-detection.
-        effective_lang = lang if lang is not None else "__auto__"
+    def transcribe(self, audio_path: str, language: str | None = None,
+                   output_locale: str | None = None) -> TranscriptResult:
+        self._ensure_model()
+        model_lang, convert_trad = _resolve_language(language)
+
+        effective_lang = model_lang if model_lang is not None else "__auto__"
 
         result = self._model.generate(audio_path, language=effective_lang)
         text = result.text.strip() if hasattr(result, "text") else str(result).strip()
 
         # Auto-detect mode: model may prefix "language Chinese\n" before text.
-        # Strip the language line if present.
         if effective_lang == "__auto__":
             for known_lang in ("Chinese", "English", "Cantonese", "Japanese", "Korean"):
                 prefix = f"language {known_lang}\n"
                 if text.startswith(prefix):
-                    lang = known_lang
+                    model_lang = known_lang
                     text = text[len(prefix):]
                     break
 
-        # Fallback: if auto-detect didn't yield a language tag (some models
-        # skip the prefix), infer from CJK character presence.
-        if lang is None and _contains_cjk(text):
-            lang = "Chinese"
+        # Fallback: infer from CJK character presence.
+        if model_lang is None and _contains_cjk(text):
+            model_lang = "Chinese"
 
-        # Convert Simplified → Traditional Chinese when appropriate.
-        if lang in _CHINESE_LANGUAGES:
+        # Decide s2t conversion in auto-detect mode.
+        if convert_trad is None and model_lang in _TRADITIONAL_CHINESE_LANGUAGES:
+            if output_locale:
+                _, convert_trad = _resolve_language(output_locale)
+            else:
+                convert_trad = True
+
+        if convert_trad and model_lang in _TRADITIONAL_CHINESE_LANGUAGES:
             text = _convert_s2t(text)
 
         return TranscriptResult(text=text)
