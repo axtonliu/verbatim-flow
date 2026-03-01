@@ -56,6 +56,22 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.loadOpenAIModel(), .whisper1)
     }
 
+    func testSaveAndLoadQwenModel() {
+        let defaults = makeIsolatedDefaults()
+        let preferences = AppPreferences(defaults: defaults)
+
+        preferences.saveQwenModel(.large)
+        XCTAssertEqual(preferences.loadQwenModel(), .large)
+    }
+
+    func testSaveAndLoadQwenRecognitionEngine() {
+        let defaults = makeIsolatedDefaults()
+        let preferences = AppPreferences(defaults: defaults)
+
+        preferences.saveRecognitionEngine(.qwen)
+        XCTAssertEqual(preferences.loadRecognitionEngine(), .qwen)
+    }
+
     private func makeIsolatedDefaults() -> UserDefaults {
         let suiteName = "verbatimflow.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

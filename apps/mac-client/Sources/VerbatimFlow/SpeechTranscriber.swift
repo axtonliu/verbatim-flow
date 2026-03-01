@@ -11,6 +11,7 @@ final class SpeechTranscriber {
     private let recognitionEngine: RecognitionEngine
     private let whisperModel: WhisperModel
     private let openAIModel: OpenAITranscriptionModel
+    private let qwenModel: QwenModel
     private let whisperComputeType: String
 
     private let audioEngine = AVAudioEngine()
@@ -31,6 +32,7 @@ final class SpeechTranscriber {
         recognitionEngine: RecognitionEngine,
         whisperModel: WhisperModel,
         openAIModel: OpenAITranscriptionModel,
+        qwenModel: QwenModel,
         whisperComputeType: String
     ) {
         self.localeIdentifier = localeIdentifier
@@ -38,6 +40,7 @@ final class SpeechTranscriber {
         self.recognitionEngine = recognitionEngine
         self.whisperModel = whisperModel
         self.openAIModel = openAIModel
+        self.qwenModel = qwenModel
         self.whisperComputeType = whisperComputeType
         self.failedRecordingEntry = FailedRecordingStore.load()
     }
@@ -62,9 +65,7 @@ final class SpeechTranscriber {
         switch recognitionEngine {
         case .apple:
             try startAppleSpeechRecording()
-        case .whisper:
-            try startFileRecording()
-        case .openai:
+        case .whisper, .openai, .qwen:
             try startFileRecording()
         }
     }
@@ -77,6 +78,8 @@ final class SpeechTranscriber {
             return try await stopWhisperRecording()
         case .openai:
             return try await stopOpenAIRecording()
+        case .qwen:
+            return try await stopQwenRecording()
         }
     }
 
@@ -124,6 +127,22 @@ final class SpeechTranscriber {
                             audioURL: entry.audioFileURL,
                             languageCode: languageCode,
                             modelOverride: model
+                        )
+                        continuation.resume(returning: text)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        case .qwen:
+            let qwenModelId = entry.qwenModelRawValue ?? QwenModel.small.rawValue
+            transcript = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let text = try Self.transcribeQwenAudioFile(
+                            audioURL: entry.audioFileURL,
+                            model: qwenModelId,
+                            languageCode: nil
                         )
                         continuation.resume(returning: text)
                     } catch {
@@ -320,6 +339,47 @@ final class SpeechTranscriber {
         }
     }
 
+    private func stopQwenRecording() async throws -> String {
+        guard let recorder = audioRecorder, let recordingURL = recordedAudioURL else {
+            return ""
+        }
+
+        let durationSec = recorder.currentTime
+        recorder.stop()
+
+        audioRecorder = nil
+        recordedAudioURL = nil
+
+        if durationSec < 0.18 {
+            try? FileManager.default.removeItem(at: recordingURL)
+            return ""
+        }
+
+        let modelId = qwenModel.rawValue
+
+        do {
+            let transcript = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let text = try Self.transcribeQwenAudioFile(
+                            audioURL: recordingURL,
+                            model: modelId,
+                            languageCode: nil
+                        )
+                        continuation.resume(returning: text)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            try? FileManager.default.removeItem(at: recordingURL)
+            return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            persistFailedRecording(audioURL: recordingURL, durationSec: durationSec)
+            throw error
+        }
+    }
+
     private func persistFailedRecording(audioURL: URL, durationSec: TimeInterval) {
         let entry = FailedRecordingStore.save(
             sourceAudioURL: audioURL,
@@ -328,6 +388,7 @@ final class SpeechTranscriber {
             whisperModel: whisperModel,
             whisperComputeType: whisperComputeType,
             openAIModel: openAIModel,
+            qwenModel: qwenModel,
             durationSeconds: durationSec
         )
         if let entry {
@@ -624,19 +685,126 @@ final class SpeechTranscriber {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    private nonisolated static func transcribeQwenAudioFile(
+        audioURL: URL,
+        model: String,
+        languageCode: String?
+    ) throws -> String {
+        guard let scriptURL = resolveQwenScriptURL() else {
+            throw AppError.qwenScriptNotFound
+        }
+
+        let process = Process()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        if let pythonURL = resolvePythonExecutable(scriptURL: scriptURL) {
+            process.executableURL = pythonURL
+            process.arguments = [
+                scriptURL.path,
+                "--audio",
+                audioURL.path,
+                "--model",
+                model
+            ]
+        } else {
+            throw AppError.pythonRuntimeNotFound
+        }
+
+        if let languageCode, !languageCode.isEmpty {
+            process.arguments?.append(contentsOf: ["--language", languageCode])
+        }
+
+        // Use cached model without network authentication, and ensure
+        // Homebrew tools (ffmpeg) are reachable for audio decoding.
+        var env = ProcessInfo.processInfo.environment
+        env["HF_HUB_OFFLINE"] = "1"
+        let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let homebrewPaths = ["/opt/homebrew/bin", "/usr/local/bin"]
+        let missingPaths = homebrewPaths.filter { !currentPath.contains($0) }
+        if !missingPaths.isEmpty {
+            env["PATH"] = (missingPaths + [currentPath]).joined(separator: ":")
+        }
+        process.environment = env
+
+        // --- DEBUG DIAGNOSTICS (temporary) ---
+        let diag = """
+        [qwen-diag] scriptURL=\(scriptURL.path)
+        [qwen-diag] scriptURL.standardized=\(scriptURL.standardizedFileURL.path)
+        [qwen-diag] pythonURL=\(process.executableURL?.path ?? "nil")
+        [qwen-diag] arguments=\(process.arguments ?? [])
+        [qwen-diag] env.PATH=\(env["PATH"] ?? "nil")
+        [qwen-diag] env.HOME=\(env["HOME"] ?? "nil")
+        [qwen-diag] env.HF_HUB_OFFLINE=\(env["HF_HUB_OFFLINE"] ?? "nil")
+        [qwen-diag] Bundle.main.executableURL=\(Bundle.main.executableURL?.path ?? "nil")
+        [qwen-diag] Bundle.main.resourceURL=\(Bundle.main.resourceURL?.path ?? "nil")
+        [qwen-diag] cwd=\(FileManager.default.currentDirectoryPath)
+        """
+        try? diag.write(toFile: "/tmp/verbatim-qwen-diag.log", atomically: true, encoding: .utf8)
+        // --- END DEBUG ---
+
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let outputText = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let errorText = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if process.terminationStatus != 0 {
+            let details = errorText.isEmpty ? outputText : errorText
+            throw AppError.qwenTranscriptionFailed(details)
+        }
+
+        return outputText
+    }
+
+    private nonisolated static func resolveQwenScriptURL() -> URL? {
+        resolveScript(named: "transcribe_qwen.py")
+    }
+
     private nonisolated static func resolveWhisperScriptURL() -> URL? {
+        resolveScript(named: "transcribe_once.py")
+    }
+
+    private nonisolated static func resolveScript(named filename: String) -> URL? {
         let fileManager = FileManager.default
         let currentDirectory = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
         let bundleDirectory = Bundle.main.bundleURL.deletingLastPathComponent()
 
-        let candidates = [
-            currentDirectory.appendingPathComponent("python/scripts/transcribe_once.py"),
-            currentDirectory.appendingPathComponent("apps/mac-client/python/scripts/transcribe_once.py"),
-            bundleDirectory.appendingPathComponent("../python/scripts/transcribe_once.py"),
-            bundleDirectory.appendingPathComponent("python/scripts/transcribe_once.py")
-        ].map { $0.standardizedFileURL }
+        var candidates = [URL]()
 
-        for candidate in candidates where fileManager.fileExists(atPath: candidate.path) {
+        // Prefer source-tree paths so that the adjacent .venv is found by
+        // resolvePythonExecutable.  Bundle resource copy is the last resort.
+
+        // executable-relative: Contents/MacOS/../../../../python/scripts → source tree
+        if let execURL = Bundle.main.executableURL {
+            let execDir = execURL.deletingLastPathComponent() // Contents/MacOS
+            candidates.append(
+                execDir.appendingPathComponent("../../../../python/scripts/\(filename)")
+            )
+        }
+
+        candidates.append(contentsOf: [
+            currentDirectory.appendingPathComponent("python/scripts/\(filename)"),
+            currentDirectory.appendingPathComponent("apps/mac-client/python/scripts/\(filename)"),
+            bundleDirectory.appendingPathComponent("../python/scripts/\(filename)"),
+            bundleDirectory.appendingPathComponent("python/scripts/\(filename)")
+        ])
+
+        // Bundle resource copy (no .venv alongside, used as fallback)
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(
+                resourceURL.appendingPathComponent("python/scripts/\(filename)")
+            )
+        }
+
+        let resolved = candidates.map { $0.standardizedFileURL }
+
+        for candidate in resolved where fileManager.fileExists(atPath: candidate.path) {
             return candidate
         }
 
@@ -645,10 +813,32 @@ final class SpeechTranscriber {
 
     private nonisolated static func resolvePythonExecutable(scriptURL: URL) -> URL? {
         let fileManager = FileManager.default
+
+        var candidates = [URL]()
+
+        // 1. venv adjacent to the script's python root (works in source tree)
         let pythonRoot = scriptURL.deletingLastPathComponent().deletingLastPathComponent()
-        let venvPython = pythonRoot.appendingPathComponent(".venv/bin/python")
-        if fileManager.fileExists(atPath: venvPython.path) {
-            return venvPython
+        candidates.append(pythonRoot.appendingPathComponent(".venv/bin/python"))
+
+        // 2. exec-relative: walk from Contents/MacOS back to source tree
+        if let execURL = Bundle.main.executableURL {
+            let macosDir = execURL.deletingLastPathComponent()
+            candidates.append(
+                macosDir.appendingPathComponent("../../../../python/.venv/bin/python")
+            )
+        }
+
+        // 3. Well-known source tree path (covers /Applications install)
+        let home = fileManager.homeDirectoryForCurrentUser
+        candidates.append(
+            home.appendingPathComponent("dev/verbatim-flow/apps/mac-client/python/.venv/bin/python")
+        )
+
+        for candidate in candidates {
+            let resolved = candidate.standardizedFileURL
+            if fileManager.fileExists(atPath: resolved.path) {
+                return resolved
+            }
         }
 
         let systemPython = URL(fileURLWithPath: "/usr/bin/python3")

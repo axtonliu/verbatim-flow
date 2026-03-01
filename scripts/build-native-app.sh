@@ -7,6 +7,10 @@ APP_NAME="VerbatimFlow"
 APP_BUNDLE="$NATIVE_DIR/dist/${APP_NAME}.app"
 EXECUTABLE_NAME="$APP_NAME"
 ICON_FILE="$NATIVE_DIR/Resources/AppIcon.icns"
+PYTHON_SCRIPTS_DIR="$NATIVE_DIR/python/scripts"
+PYTHON_PACKAGE_DIR="$NATIVE_DIR/python/verbatim_flow"
+APP_PYTHON_SCRIPTS_DIR="$APP_BUNDLE/Contents/Resources/python/scripts"
+APP_PYTHON_PACKAGE_DIR="$APP_BUNDLE/Contents/Resources/python/verbatim_flow"
 BUNDLE_ID="${VERBATIMFLOW_BUNDLE_ID:-com.verbatimflow.app}"
 
 cd "$NATIVE_DIR"
@@ -29,9 +33,23 @@ else
 fi
 chmod +x "$APP_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME"
 
-"$ROOT_DIR/scripts/generate-app-icon.sh"
+if [[ "${VERBATIMFLOW_REGENERATE_ICON:-0}" == "1" || ! -f "$ICON_FILE" ]]; then
+  "$ROOT_DIR/scripts/generate-app-icon.sh"
+fi
 if [[ -f "$ICON_FILE" ]]; then
   cp "$ICON_FILE" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+fi
+
+if [[ -d "$PYTHON_SCRIPTS_DIR" ]]; then
+  mkdir -p "$APP_BUNDLE/Contents/Resources/python"
+  ditto "$PYTHON_SCRIPTS_DIR" "$APP_PYTHON_SCRIPTS_DIR"
+else
+  echo "[error] python scripts directory not found: $PYTHON_SCRIPTS_DIR" >&2
+  exit 1
+fi
+
+if [[ -d "$PYTHON_PACKAGE_DIR" ]]; then
+  ditto "$PYTHON_PACKAGE_DIR" "$APP_PYTHON_PACKAGE_DIR"
 fi
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST

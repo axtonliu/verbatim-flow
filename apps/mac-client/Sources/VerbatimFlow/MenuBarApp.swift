@@ -60,6 +60,24 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         action: #selector(setEngineOpenAI),
         keyEquivalent: ""
     )
+    private lazy var engineQwenItem = NSMenuItem(
+        title: "Qwen3 ASR",
+        action: #selector(setEngineQwen),
+        keyEquivalent: ""
+    )
+
+    private let qwenModelMenuItem = NSMenuItem(title: "Qwen Model", action: nil, keyEquivalent: "")
+    private lazy var qwenModelSmallItem = NSMenuItem(
+        title: "Qwen3-ASR-0.6B",
+        action: #selector(setQwenModelSmall),
+        keyEquivalent: ""
+    )
+    private lazy var qwenModelLargeItem = NSMenuItem(
+        title: "Qwen3-ASR-1.7B",
+        action: #selector(setQwenModelLarge),
+        keyEquivalent: ""
+    )
+    private let qwenModelInfoItem: NSMenuItem = NSMenuItem(title: "Qwen Model: -", action: nil, keyEquivalent: "")
 
     private let openAIModelMenuItem = NSMenuItem(title: "OpenAI Model", action: nil, keyEquivalent: "")
     private lazy var openAIModelMiniItem = NSMenuItem(
@@ -232,6 +250,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         let recognitionEngine = MenuBarApp.resolveRecognitionEngine(config: config, preferences: preferences)
         let whisperModel = MenuBarApp.resolveWhisperModel(config: config, preferences: preferences)
         let openAIModel = MenuBarApp.resolveOpenAIModel(config: config, preferences: preferences)
+        let qwenModel = MenuBarApp.resolveQwenModel(config: config, preferences: preferences)
         let hotkey = MenuBarApp.resolveHotkey(config: config, preferences: preferences)
         let languageSelection = MenuBarApp.resolveLanguageSelection(config: config, preferences: preferences)
         let localeIdentifier = MenuBarApp.localeIdentifier(forSelection: languageSelection)
@@ -242,6 +261,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             whisperModel: whisperModel,
             whisperComputeType: config.whisperComputeType,
             openAIModel: openAIModel,
+            qwenModel: qwenModel,
             localeIdentifier: localeIdentifier,
             hotkey: hotkey,
             requireOnDeviceRecognition: config.requireOnDeviceRecognition,
@@ -292,6 +312,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         engineInfoItem.isEnabled = false
         whisperModelInfoItem.isEnabled = false
         openAIModelInfoItem.isEnabled = false
+        qwenModelInfoItem.isEnabled = false
         hotkeyInfoItem.isEnabled = false
         clarifyHotkeyInfoItem.isEnabled = false
         languageInfoItem.isEnabled = false
@@ -311,11 +332,20 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         engineAppleItem.target = self
         engineWhisperItem.target = self
         engineOpenAIItem.target = self
+        engineQwenItem.target = self
         let engineSubmenu = NSMenu(title: "Recognition Engine")
         engineSubmenu.addItem(engineAppleItem)
         engineSubmenu.addItem(engineWhisperItem)
         engineSubmenu.addItem(engineOpenAIItem)
+        engineSubmenu.addItem(engineQwenItem)
         engineMenuItem.submenu = engineSubmenu
+
+        qwenModelSmallItem.target = self
+        qwenModelLargeItem.target = self
+        let qwenModelSubmenu = NSMenu(title: "Qwen Model")
+        qwenModelSubmenu.addItem(qwenModelSmallItem)
+        qwenModelSubmenu.addItem(qwenModelLargeItem)
+        qwenModelMenuItem.submenu = qwenModelSubmenu
 
         openAIModelMiniItem.target = self
         openAIModelWhisper1Item.target = self
@@ -377,12 +407,14 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         settingsSubmenu.addItem(engineMenuItem)
         settingsSubmenu.addItem(whisperModelMenuItem)
         settingsSubmenu.addItem(openAIModelMenuItem)
+        settingsSubmenu.addItem(qwenModelMenuItem)
         settingsSubmenu.addItem(hotkeyMenuItem)
         settingsSubmenu.addItem(languageMenuItem)
         settingsSubmenu.addItem(NSMenuItem.separator())
         settingsSubmenu.addItem(engineInfoItem)
         settingsSubmenu.addItem(whisperModelInfoItem)
         settingsSubmenu.addItem(openAIModelInfoItem)
+        settingsSubmenu.addItem(qwenModelInfoItem)
         settingsSubmenu.addItem(hotkeyInfoItem)
         settingsSubmenu.addItem(clarifyHotkeyInfoItem)
         settingsSubmenu.addItem(languageInfoItem)
@@ -548,14 +580,17 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         let currentEngine = controller.currentRecognitionEngine
         let currentWhisperModel = controller.currentWhisperModel
         let currentOpenAIModel = controller.currentOpenAIModel
+        let currentQwenModel = controller.currentQwenModel
 
         engineInfoItem.title = "Engine: \(currentEngine.displayName)"
         whisperModelInfoItem.title = "Whisper Model: \(currentWhisperModel.displayName)"
         openAIModelInfoItem.title = "OpenAI Model: \(currentOpenAIModel.displayName)"
+        qwenModelInfoItem.title = "Qwen Model: \(currentQwenModel.displayName)"
 
         engineAppleItem.state = currentEngine == .apple ? .on : .off
         engineWhisperItem.state = currentEngine == .whisper ? .on : .off
         engineOpenAIItem.state = currentEngine == .openai ? .on : .off
+        engineQwenItem.state = currentEngine == .qwen ? .on : .off
 
         whisperModelSmallItem.state = currentWhisperModel == .small ? .on : .off
         whisperModelTinyItem.state = currentWhisperModel == .tiny ? .on : .off
@@ -564,11 +599,15 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         whisperModelLargeV3Item.state = currentWhisperModel == .largeV3 ? .on : .off
         openAIModelMiniItem.state = currentOpenAIModel == .gpt4oMiniTranscribe ? .on : .off
         openAIModelWhisper1Item.state = currentOpenAIModel == .whisper1 ? .on : .off
+        qwenModelSmallItem.state = currentQwenModel == .small ? .on : .off
+        qwenModelLargeItem.state = currentQwenModel == .large ? .on : .off
 
         whisperModelMenuItem.isEnabled = currentEngine == .whisper
         openAIModelMenuItem.isEnabled = currentEngine == .openai
+        qwenModelMenuItem.isEnabled = currentEngine == .qwen
         whisperModelInfoItem.isHidden = currentEngine != .whisper
         openAIModelInfoItem.isHidden = currentEngine != .openai
+        qwenModelInfoItem.isHidden = currentEngine != .qwen
     }
 
     private func refreshHotkeyChecks() {
@@ -697,6 +736,11 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         setRecognitionEngine(.openai)
     }
 
+    @objc
+    private func setEngineQwen() {
+        setRecognitionEngine(.qwen)
+    }
+
     private func setRecognitionEngine(_ engine: RecognitionEngine) {
         controller.setRecognitionEngine(engine)
         preferences.saveRecognitionEngine(controller.currentRecognitionEngine)
@@ -747,6 +791,22 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func setOpenAIModel(_ model: OpenAITranscriptionModel) {
         controller.setOpenAIModel(model)
         preferences.saveOpenAIModel(controller.currentOpenAIModel)
+        refreshEngineChecks()
+    }
+
+    @objc
+    private func setQwenModelSmall() {
+        setQwenModel(.small)
+    }
+
+    @objc
+    private func setQwenModelLarge() {
+        setQwenModel(.large)
+    }
+
+    private func setQwenModel(_ model: QwenModel) {
+        controller.setQwenModel(model)
+        preferences.saveQwenModel(controller.currentQwenModel)
         refreshEngineChecks()
     }
 
@@ -1112,6 +1172,13 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
             return config.openAIModel
         }
         return preferences.loadOpenAIModel() ?? config.openAIModel
+    }
+
+    private static func resolveQwenModel(config: CLIConfig, preferences: AppPreferences) -> QwenModel {
+        if hasCLIFlag("--qwen-model") {
+            return config.qwenModel
+        }
+        return preferences.loadQwenModel() ?? config.qwenModel
     }
 
     private static func resolveHotkey(config: CLIConfig, preferences: AppPreferences) -> Hotkey {
