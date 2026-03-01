@@ -14,7 +14,9 @@ def parse_args() -> argparse.Namespace:
         default="mlx-community/Qwen3-ASR-0.6B-8bit",
         help="HuggingFace model ID for Qwen3-ASR",
     )
-    parser.add_argument("--language", default=None, help="Language code (zh, en, ...)")
+    parser.add_argument("--language", default=None, help="Language code (zh, en, zh-Hant, zh-Hans, ...)")
+    parser.add_argument("--output-locale", default=None,
+                        help="Locale hint for output script (e.g. zh-Hant for Traditional Chinese)")
     return parser.parse_args()
 
 
@@ -41,7 +43,11 @@ def main() -> int:
     from verbatim_flow.qwen_transcriber import QwenTranscriber
 
     transcriber = QwenTranscriber(model=args.model)
-    result = transcriber.transcribe(str(audio_path), language=normalize_language(args.language))
+    result = transcriber.transcribe(
+        str(audio_path),
+        language=normalize_language(args.language),
+        output_locale=args.output_locale,
+    )
     text = result.text.strip()
     if text:
         sys.stdout.write(text)
