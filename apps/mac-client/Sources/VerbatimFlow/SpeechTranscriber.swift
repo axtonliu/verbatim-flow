@@ -421,6 +421,42 @@ final class SpeechTranscriber {
             .appendingPathExtension("m4a")
     }
 
+    /// Runs a subprocess while draining stdout/stderr via readabilityHandler
+    /// to avoid deadlock when child output exceeds the 64 KB pipe buffer.
+    private nonisolated static func runSubprocess(
+        _ process: Process,
+        outputPipe: Pipe,
+        errorPipe: Pipe
+    ) throws -> (stdout: String, stderr: String) {
+        var outputData = Data()
+        var errorData = Data()
+
+        let outputHandle = outputPipe.fileHandleForReading
+        let errorHandle = errorPipe.fileHandleForReading
+
+        outputHandle.readabilityHandler = { handle in
+            outputData.append(handle.availableData)
+        }
+        errorHandle.readabilityHandler = { handle in
+            errorData.append(handle.availableData)
+        }
+
+        try process.run()
+        process.waitUntilExit()
+
+        outputHandle.readabilityHandler = nil
+        errorHandle.readabilityHandler = nil
+        outputData.append(outputHandle.readDataToEndOfFile())
+        errorData.append(errorHandle.readDataToEndOfFile())
+
+        let stdout = String(data: outputData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(data: errorData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return (stdout, stderr)
+    }
+
     private nonisolated static func transcribeWhisperAudioFile(
         audioURL: URL,
         model: String,
@@ -457,13 +493,7 @@ final class SpeechTranscriber {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
-        try process.run()
-        process.waitUntilExit()
-
-        let outputText = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let errorText = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let (outputText, errorText) = try runSubprocess(process, outputPipe: outputPipe, errorPipe: errorPipe)
 
         if process.terminationStatus != 0 {
             let details = errorText.isEmpty ? outputText : errorText
@@ -744,13 +774,7 @@ final class SpeechTranscriber {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
-        try process.run()
-        process.waitUntilExit()
-
-        let outputText = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let errorText = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let (outputText, errorText) = try runSubprocess(process, outputPipe: outputPipe, errorPipe: errorPipe)
 
         if process.terminationStatus != 0 {
             let details = errorText.isEmpty ? outputText : errorText
