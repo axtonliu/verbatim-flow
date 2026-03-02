@@ -139,6 +139,9 @@ final class SpeechTranscriber {
             }
         case .qwen:
             let qwenModelId = entry.qwenModelRawValue ?? QwenModel.small.rawValue
+            // NOTE: Uses current languageIsAutoDetect, not the value at recording time.
+            // FailedRecordingEntry doesn't persist the auto-detect flag; mismatch is
+            // unlikely in practice (requires Qwen failure + language mode switch before retry).
             let languageCode = Self.qwenLanguageParam(from: entry.localeIdentifier, isAutoDetect: languageIsAutoDetect)
             let outputLocale: String? = (languageCode == nil) ? entry.localeIdentifier : nil
             transcript = try await withCheckedThrowingContinuation { continuation in
