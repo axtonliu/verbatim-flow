@@ -20,6 +20,7 @@ final class AppController {
     }
 
     private(set) var localeIdentifier: String
+    private var languageIsAutoDetect: Bool
 
     private let requireOnDeviceRecognition: Bool
     private var recognitionEngine: RecognitionEngine
@@ -60,8 +61,9 @@ final class AppController {
     var onPermissionSnapshot: ((PermissionSnapshot) -> Void)?
     var onRetriableAudioAvailabilityChanged: ((Bool) -> Void)?
 
-    init(config: CLIConfig) {
+    init(config: CLIConfig, languageIsAutoDetect: Bool = false) {
         self.localeIdentifier = config.localeIdentifier
+        self.languageIsAutoDetect = languageIsAutoDetect
         self.requireOnDeviceRecognition = config.requireOnDeviceRecognition
         self.recognitionEngine = config.recognitionEngine
         self.whisperModel = config.whisperModel
@@ -79,7 +81,8 @@ final class AppController {
             whisperModel: config.whisperModel,
             openAIModel: config.openAIModel,
             qwenModel: config.qwenModel,
-            whisperComputeType: config.whisperComputeType
+            whisperComputeType: config.whisperComputeType,
+            languageIsAutoDetect: languageIsAutoDetect
         )
     }
 
@@ -257,10 +260,9 @@ final class AppController {
         }
     }
 
-    func setLocaleIdentifier(_ localeIdentifier: String) {
-        guard self.localeIdentifier != localeIdentifier else {
-            return
-        }
+    func setLocaleIdentifier(_ localeIdentifier: String, isAutoDetect: Bool) {
+        let changed = self.localeIdentifier != localeIdentifier || self.languageIsAutoDetect != isAutoDetect
+        guard changed else { return }
 
         guard !isRecording else {
             emit("[warn] stop recording before changing language")
@@ -268,8 +270,9 @@ final class AppController {
         }
 
         self.localeIdentifier = localeIdentifier
+        self.languageIsAutoDetect = isAutoDetect
         rebuildTranscriber()
-        emit("[config] language set to \(localeIdentifier)")
+        emit("[config] language set to \(localeIdentifier)\(isAutoDetect ? " (auto-detect)" : "")")
     }
 
     func setRecognitionEngine(_ engine: RecognitionEngine) {
@@ -640,7 +643,8 @@ final class AppController {
             whisperModel: whisperModel,
             openAIModel: openAIModel,
             qwenModel: qwenModel,
-            whisperComputeType: whisperComputeType
+            whisperComputeType: whisperComputeType,
+            languageIsAutoDetect: languageIsAutoDetect
         )
         notifyRetriableAudioAvailabilityChanged()
     }

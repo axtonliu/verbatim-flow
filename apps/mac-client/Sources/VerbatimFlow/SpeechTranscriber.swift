@@ -13,6 +13,7 @@ final class SpeechTranscriber {
     private let openAIModel: OpenAITranscriptionModel
     private let qwenModel: QwenModel
     private let whisperComputeType: String
+    private let languageIsAutoDetect: Bool
 
     private let audioEngine = AVAudioEngine()
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -33,7 +34,8 @@ final class SpeechTranscriber {
         whisperModel: WhisperModel,
         openAIModel: OpenAITranscriptionModel,
         qwenModel: QwenModel,
-        whisperComputeType: String
+        whisperComputeType: String,
+        languageIsAutoDetect: Bool = false
     ) {
         self.localeIdentifier = localeIdentifier
         self.requireOnDeviceRecognition = requireOnDeviceRecognition
@@ -42,6 +44,7 @@ final class SpeechTranscriber {
         self.openAIModel = openAIModel
         self.qwenModel = qwenModel
         self.whisperComputeType = whisperComputeType
+        self.languageIsAutoDetect = languageIsAutoDetect
         self.failedRecordingEntry = FailedRecordingStore.load()
     }
 
@@ -136,7 +139,7 @@ final class SpeechTranscriber {
             }
         case .qwen:
             let qwenModelId = entry.qwenModelRawValue ?? QwenModel.small.rawValue
-            let languageCode = Self.qwenLanguageParam(from: entry.localeIdentifier)
+            let languageCode = Self.qwenLanguageParam(from: entry.localeIdentifier, isAutoDetect: languageIsAutoDetect)
             let outputLocale: String? = (languageCode == nil) ? entry.localeIdentifier : nil
             transcript = try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -359,7 +362,7 @@ final class SpeechTranscriber {
         }
 
         let modelId = qwenModel.rawValue
-        let languageCode = Self.qwenLanguageParam(from: localeIdentifier)
+        let languageCode = Self.qwenLanguageParam(from: localeIdentifier, isAutoDetect: languageIsAutoDetect)
         let outputLocale: String? = (languageCode == nil) ? localeIdentifier : nil
 
         do {
@@ -854,11 +857,13 @@ final class SpeechTranscriber {
         return languageCode?.isEmpty == false ? languageCode : nil
     }
 
-    private nonisolated static func qwenLanguageParam(from localeIdentifier: String) -> String? {
+    private nonisolated static func qwenLanguageParam(
+        from localeIdentifier: String,
+        isAutoDetect: Bool
+    ) -> String? {
+        if isAutoDetect { return nil }
         let lowercased = localeIdentifier.lowercased()
-        if lowercased == "system" || lowercased.isEmpty {
-            return nil
-        }
+        if lowercased.isEmpty { return nil }
         // Pass full locale for zh variants so Python can distinguish Hant/Hans.
         if lowercased.hasPrefix("zh") {
             return localeIdentifier

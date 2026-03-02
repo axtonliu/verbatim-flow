@@ -14,7 +14,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private let config: CLIConfig
     private let preferences: AppPreferences
     private var languageSelection: String
-    private lazy var controller = AppController(config: config)
+    private lazy var controller = AppController(
+        config: config,
+        languageIsAutoDetect: languageSelection == AppPreferences.systemLanguageToken
+    )
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -867,7 +870,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
     private func setLanguageSelection(_ selection: String) {
         languageSelection = selection
         let localeIdentifier = Self.localeIdentifier(forSelection: selection)
-        controller.setLocaleIdentifier(localeIdentifier)
+        controller.setLocaleIdentifier(localeIdentifier, isAutoDetect: selection == AppPreferences.systemLanguageToken)
         preferences.saveLanguageSelection(selection)
         refreshLanguageChecks()
     }
