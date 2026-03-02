@@ -12,6 +12,7 @@ enum RecognitionEngine: String {
     case whisper
     case openai
     case qwen
+    case mlxWhisper = "mlx-whisper"
 
     var displayName: String {
         switch self {
@@ -23,6 +24,8 @@ enum RecognitionEngine: String {
             return "OpenAI Cloud"
         case .qwen:
             return "Qwen3 ASR"
+        case .mlxWhisper:
+            return "MLX Whisper"
         }
     }
 }
@@ -153,7 +156,7 @@ struct CLIConfig {
             case "--engine":
                 index += 1
                 guard index < args.count, let engine = RecognitionEngine(rawValue: args[index]) else {
-                    throw ConfigError.invalidValue("--engine", "apple | whisper | openai | qwen")
+                    throw ConfigError.invalidValue("--engine", "apple | whisper | openai | qwen | mlx-whisper")
                 }
                 config = config.replacing(recognitionEngine: engine)
             case "--whisper-model":
@@ -232,7 +235,7 @@ enum HelpPrinter {
             "verbatim-flow",
             "",
             "Usage:",
-            "  verbatim-flow [--mode raw|format-only|clarify] [--engine apple|whisper|openai|qwen] [--whisper-model tiny|base|small|medium|large-v3] [--whisper-compute-type int8|int8_float16|float16|float32] [--openai-model gpt-4o-mini-transcribe|whisper-1] [--qwen-model <hf-id>] [--locale <id>] [--hotkey ctrl+shift+space|shift+option] [--require-on-device] [--dry-run]",
+            "  verbatim-flow [--mode raw|format-only|clarify] [--engine apple|whisper|openai|qwen|mlx-whisper] [--whisper-model tiny|base|small|medium|large-v3] [--whisper-compute-type int8|int8_float16|float16|float32] [--openai-model gpt-4o-mini-transcribe|whisper-1] [--qwen-model <hf-id>] [--locale <id>] [--hotkey ctrl+shift+space|shift+option] [--require-on-device] [--dry-run]",
             "",
             "Defaults:",
             "  --mode raw",
