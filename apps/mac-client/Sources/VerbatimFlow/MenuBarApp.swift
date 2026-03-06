@@ -142,6 +142,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
 
     private let lastEventItem = NSMenuItem(title: "Last event: -", action: nil, keyEquivalent: "")
     private let permissionStatusItem = NSMenuItem(title: "Permissions: Checking...", action: nil, keyEquivalent: "")
+    private let permissionsMenuItem = NSMenuItem(title: "Permissions", action: nil, keyEquivalent: "")
 
     private let recentMenuItem = NSMenuItem(title: "Recent transcripts", action: nil, keyEquivalent: "")
     private let recentSubmenu = NSMenu(title: "Recent transcripts")
@@ -372,6 +373,14 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         openOpenAISettingsItem.target = self
         aboutMenuItem.target = self
 
+        let permissionsSubmenu = NSMenu(title: "Permissions")
+        permissionsSubmenu.addItem(requestPermissionsItem)
+        permissionsSubmenu.addItem(openAccessibilityItem)
+        permissionsSubmenu.addItem(openInputMonitoringItem)
+        permissionsSubmenu.addItem(openMicItem)
+        permissionsSubmenu.addItem(openSpeechItem)
+        permissionsMenuItem.submenu = permissionsSubmenu
+
         let settingsSubmenu = NSMenu(title: "Settings")
         settingsSubmenu.addItem(modeMenuItem)
         settingsSubmenu.addItem(engineMenuItem)
@@ -380,22 +389,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate {
         settingsSubmenu.addItem(hotkeyMenuItem)
         settingsSubmenu.addItem(languageMenuItem)
         settingsSubmenu.addItem(NSMenuItem.separator())
-        settingsSubmenu.addItem(engineInfoItem)
-        settingsSubmenu.addItem(whisperModelInfoItem)
-        settingsSubmenu.addItem(openAIModelInfoItem)
-        settingsSubmenu.addItem(hotkeyInfoItem)
-        settingsSubmenu.addItem(clarifyHotkeyInfoItem)
-        settingsSubmenu.addItem(languageInfoItem)
-        settingsSubmenu.addItem(NSMenuItem.separator())
-        settingsSubmenu.addItem(requestPermissionsItem)
-        settingsSubmenu.addItem(openAccessibilityItem)
-        settingsSubmenu.addItem(openInputMonitoringItem)
-        settingsSubmenu.addItem(openMicItem)
-        settingsSubmenu.addItem(openSpeechItem)
+        settingsSubmenu.addItem(permissionsMenuItem)
         settingsSubmenu.addItem(NSMenuItem.separator())
         settingsSubmenu.addItem(openTerminologyItem)
         settingsSubmenu.addItem(openOpenAISettingsItem)
-        settingsSubmenu.addItem(openLogsItem)
         settingsMenuItem.submenu = settingsSubmenu
 
         quitItem.target = self

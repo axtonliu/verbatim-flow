@@ -24,6 +24,8 @@ final class SpeechTranscriber {
     private var audioRecorder: AVAudioRecorder?
     private var recordedAudioURL: URL?
     private var failedRecordingEntry: FailedRecordingStore.Entry?
+    private var pendingTranscriptionAudioURL: URL?
+    private var pendingTranscriptionDurationSeconds: TimeInterval?
 
     init(
         localeIdentifier: String,
@@ -80,6 +82,22 @@ final class SpeechTranscriber {
         }
     }
 
+    func persistPendingTranscriptionForRetryIfNeeded(reason: String) {
+        guard let audioURL = pendingTranscriptionAudioURL,
+              let durationSeconds = pendingTranscriptionDurationSeconds else {
+            return
+        }
+
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            clearPendingTranscriptionTracking()
+            RuntimeLogger.log("[retry-audio] pending transcription source missing; skip persist reason=\(reason)")
+            return
+        }
+
+        RuntimeLogger.log("[retry-audio] persisting in-flight recording reason=\(reason)")
+        persistFailedRecording(audioURL: audioURL, durationSec: durationSeconds)
+    }
+
     func retryLastFailedRecording() async throws -> String {
         guard let entry = failedRecordingEntry else {
             throw AppError.retryAudioUnavailable
@@ -117,13 +135,15 @@ final class SpeechTranscriber {
         case .openai:
             let model = entry.openAIModel?.rawValue
             let languageCode = Self.whisperLanguageCode(from: entry.localeIdentifier)
+            let timeout = Self.resolvedOpenAITranscriptionTimeoutSeconds(isSecondary: false)
             transcript = try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     do {
                         let text = try Self.transcribeOpenAIAudioFile(
                             audioURL: entry.audioFileURL,
                             languageCode: languageCode,
-                            modelOverride: model
+                            modelOverride: model,
+                            timeout: timeout
                         )
                         continuation.resume(returning: text)
                     } catch {
@@ -251,6 +271,8 @@ final class SpeechTranscriber {
             return ""
         }
 
+        trackPendingTranscription(audioURL: recordingURL, durationSec: durationSec)
+
         let model = whisperModel.rawValue
         let computeType = whisperComputeType
         let languageCode = Self.whisperLanguageCode(from: localeIdentifier)
@@ -272,6 +294,7 @@ final class SpeechTranscriber {
                 }
             }
             try? FileManager.default.removeItem(at: recordingURL)
+            clearPendingTranscriptionTracking()
             return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             persistFailedRecording(audioURL: recordingURL, durationSec: durationSec)
@@ -295,6 +318,8 @@ final class SpeechTranscriber {
             return ""
         }
 
+        trackPendingTranscription(audioURL: recordingURL, durationSec: durationSec)
+
         let selectedModel = openAIModel.rawValue
         let env = ProcessInfo.processInfo.environment
         let fileValues = OpenAISettings.loadValues()
@@ -303,12 +328,21 @@ final class SpeechTranscriber {
             environment: env,
             fileValues: fileValues
         )
+        let primaryTimeout = Self.resolvedOpenAITranscriptionTimeoutSeconds(isSecondary: false)
 
         do {
+            let primaryStartedAt = Date()
+            RuntimeLogger.log(
+                "[openai] phase=primary start model=\(selectedModel) timeout=\(Int(primaryTimeout))s"
+            )
             let primaryTranscript = try await Self.transcribeOpenAIAudioFileAsync(
                 audioURL: recordingURL,
                 languageCode: languageCode,
-                modelOverride: selectedModel
+                modelOverride: selectedModel,
+                timeout: primaryTimeout
+            )
+            RuntimeLogger.log(
+                "[openai] phase=primary done model=\(selectedModel) elapsedMs=\(Int(Date().timeIntervalSince(primaryStartedAt) * 1000))"
             )
 
             let autoConfig = OpenAIAutoRouter.resolveConfig(
@@ -329,15 +363,24 @@ final class SpeechTranscriber {
 
                 if analysis.shouldRetry,
                    autoConfig.secondaryModel.caseInsensitiveCompare(selectedModel) != .orderedSame {
+                    let secondaryTimeout = Self.resolvedOpenAITranscriptionTimeoutSeconds(isSecondary: true)
                     RuntimeLogger.log(
-                        "[openai-auto] reroute triggered primary=\(selectedModel) secondary=\(autoConfig.secondaryModel) risk=\(analysis.riskScore) reasons=\(analysis.reasons.joined(separator: "|"))"
+                        "[openai-auto] reroute triggered primary=\(selectedModel) secondary=\(autoConfig.secondaryModel) risk=\(analysis.riskScore) timeout=\(Int(secondaryTimeout))s reasons=\(analysis.reasons.joined(separator: "|"))"
                     )
 
                     do {
+                        let secondaryStartedAt = Date()
+                        RuntimeLogger.log(
+                            "[openai] phase=secondary start model=\(autoConfig.secondaryModel) timeout=\(Int(secondaryTimeout))s"
+                        )
                         let secondaryTranscript = try await Self.transcribeOpenAIAudioFileAsync(
                             audioURL: recordingURL,
                             languageCode: languageCode,
-                            modelOverride: autoConfig.secondaryModel
+                            modelOverride: autoConfig.secondaryModel,
+                            timeout: secondaryTimeout
+                        )
+                        RuntimeLogger.log(
+                            "[openai] phase=secondary done model=\(autoConfig.secondaryModel) elapsedMs=\(Int(Date().timeIntervalSince(secondaryStartedAt) * 1000))"
                         )
                         let selection = OpenAIAutoRouter.selectPreferredTranscript(
                             primaryText: primaryTranscript,
@@ -364,6 +407,7 @@ final class SpeechTranscriber {
             }
 
             try? FileManager.default.removeItem(at: recordingURL)
+            clearPendingTranscriptionTracking()
             return finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             persistFailedRecording(audioURL: recordingURL, durationSec: durationSec)
@@ -372,6 +416,16 @@ final class SpeechTranscriber {
     }
 
     private func persistFailedRecording(audioURL: URL, durationSec: TimeInterval) {
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            if failedRecordingEntry != nil {
+                RuntimeLogger.log("[retry-audio] skip persist because audio was already preserved for retry")
+            } else {
+                RuntimeLogger.log("[retry-audio] skip persist because source audio file is missing at \(audioURL.path)")
+            }
+            clearPendingTranscriptionTracking()
+            return
+        }
+
         let entry = FailedRecordingStore.save(
             sourceAudioURL: audioURL,
             recognitionEngine: recognitionEngine,
@@ -383,11 +437,13 @@ final class SpeechTranscriber {
         )
         if let entry {
             failedRecordingEntry = entry
+            clearPendingTranscriptionTracking()
             RuntimeLogger.log(
                 "[retry-audio] persisted failed recording path=\(entry.audioFileURL.path) engine=\(entry.recognitionEngineRawValue) durationSec=\(String(format: "%.2f", entry.durationSeconds))"
             )
         } else {
             try? FileManager.default.removeItem(at: audioURL)
+            clearPendingTranscriptionTracking()
             RuntimeLogger.log("[retry-audio] failed to persist failed recording; original audio removed")
         }
     }
@@ -472,7 +528,8 @@ final class SpeechTranscriber {
     private nonisolated static func transcribeOpenAIAudioFile(
         audioURL: URL,
         languageCode: String?,
-        modelOverride: String?
+        modelOverride: String?,
+        timeout: TimeInterval
     ) throws -> String {
         let env = ProcessInfo.processInfo.environment
         let fileValues = OpenAISettings.loadValues()
@@ -520,13 +577,13 @@ final class SpeechTranscriber {
 
         var request = URLRequest(url: endpointURL)
         request.httpMethod = "POST"
-        request.timeoutInterval = 180
+        request.timeoutInterval = timeout
         request.httpBody = body
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (outputData, statusCode) = try performRequest(request, timeout: 180)
+        let (outputData, statusCode) = try performRequest(request, timeout: timeout)
         if !(200...299).contains(statusCode) {
             let message = parseErrorMessage(from: outputData)
             throw AppError.openAITranscriptionFailed(
@@ -560,7 +617,8 @@ final class SpeechTranscriber {
     private nonisolated static func transcribeOpenAIAudioFileAsync(
         audioURL: URL,
         languageCode: String?,
-        modelOverride: String?
+        modelOverride: String?,
+        timeout: TimeInterval
     ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -568,7 +626,8 @@ final class SpeechTranscriber {
                     let text = try Self.transcribeOpenAIAudioFile(
                         audioURL: audioURL,
                         languageCode: languageCode,
-                        modelOverride: modelOverride
+                        modelOverride: modelOverride,
+                        timeout: timeout
                     )
                     continuation.resume(returning: text)
                 } catch {
@@ -801,6 +860,42 @@ final class SpeechTranscriber {
             return 120
         }
         return seconds
+    }
+
+    private nonisolated static func resolvedOpenAITranscriptionTimeoutSeconds(isSecondary: Bool) -> TimeInterval {
+        let env = ProcessInfo.processInfo.environment
+        let fileValues = OpenAISettings.loadValues()
+
+        let primaryRaw = (env["VERBATIMFLOW_OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS"]
+            ?? fileValues["VERBATIMFLOW_OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let primaryTimeout = parseTimeoutSeconds(primaryRaw, defaultValue: 45)
+
+        guard isSecondary else {
+            return primaryTimeout
+        }
+
+        let secondaryRaw = (env["VERBATIMFLOW_OPENAI_SECONDARY_TRANSCRIPTION_TIMEOUT_SECONDS"]
+            ?? fileValues["VERBATIMFLOW_OPENAI_SECONDARY_TRANSCRIPTION_TIMEOUT_SECONDS"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return parseTimeoutSeconds(secondaryRaw, defaultValue: min(primaryTimeout, 20))
+    }
+
+    private nonisolated static func parseTimeoutSeconds(_ rawValue: String?, defaultValue: TimeInterval) -> TimeInterval {
+        guard let rawValue, let seconds = Double(rawValue), seconds >= 15, seconds <= 600 else {
+            return defaultValue
+        }
+        return seconds
+    }
+
+    private func trackPendingTranscription(audioURL: URL, durationSec: TimeInterval) {
+        pendingTranscriptionAudioURL = audioURL
+        pendingTranscriptionDurationSeconds = durationSec
+    }
+
+    private func clearPendingTranscriptionTracking() {
+        pendingTranscriptionAudioURL = nil
+        pendingTranscriptionDurationSeconds = nil
     }
 
     private func resolveSpeechAuthorization() async -> Bool {

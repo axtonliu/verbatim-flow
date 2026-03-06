@@ -907,6 +907,7 @@ final class AppController {
             self.emit(
                 "[watchdog] processing exceeded \(Int(timeout))s (\(context)); reset to ready and drop stale result"
             )
+            self.transcriber.persistPendingTranscriptionForRetryIfNeeded(reason: "processing-watchdog")
             self.activeProcessingToken = nil
             self.pendingInsertTarget = nil
             self.pendingSegmentModeOverride = nil
