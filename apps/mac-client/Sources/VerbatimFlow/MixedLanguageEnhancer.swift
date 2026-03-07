@@ -6,9 +6,13 @@ struct MixedLanguageEnhancementResult {
 }
 
 enum MixedLanguageEnhancer {
-    private static let englishTokenRegex = try? NSRegularExpression(pattern: "[A-Za-z][A-Za-z\\-']*", options: [])
+    private static let englishTokenRegex = try? NSRegularExpression(
+        pattern: "[A-Za-z][A-Za-z0-9]*(?:[-'][A-Za-z0-9]+)*",
+        options: []
+    )
     private static let hanCharacterRegex = try? NSRegularExpression(pattern: "\\p{Han}", options: [])
     private static let hanTokenRegex = try? NSRegularExpression(pattern: "[\\p{Han}]{2,6}", options: [])
+    private static let phraseTokenRegex = try? NSRegularExpression(pattern: "[A-Za-z0-9]+", options: [])
 
     static func apply(text: String, localeIdentifier: String, vocabularyHints: [String]) -> MixedLanguageEnhancementResult {
         guard !text.isEmpty else {
@@ -28,6 +32,10 @@ enum MixedLanguageEnhancer {
         var appliedRules: [String] = []
 
         if containsEnglishToken(text) {
+            let phraseCorrections = applyPhraseCorrections(text: output, candidates: normalizedPhraseTerms(from: vocabularyHints))
+            output = phraseCorrections.text
+            appliedRules.append(contentsOf: phraseCorrections.appliedRules)
+
             let englishCorrections = applyEnglishTokenCorrections(text: output, candidates: canonicalTerms)
             output = englishCorrections.text
             appliedRules.append(contentsOf: englishCorrections.appliedRules)
@@ -38,6 +46,57 @@ enum MixedLanguageEnhancer {
         appliedRules.append(contentsOf: hanCorrections.appliedRules)
 
         return MixedLanguageEnhancementResult(text: output, appliedRules: appliedRules)
+    }
+
+    private static func applyPhraseCorrections(text: String, candidates: [String: String]) -> MixedLanguageEnhancementResult {
+        guard let regex = phraseTokenRegex, !candidates.isEmpty else {
+            return MixedLanguageEnhancementResult(text: text, appliedRules: [])
+        }
+
+        var output = text
+        var appliedRules: [String] = []
+
+        for windowSize in stride(from: 3, through: 2, by: -1) {
+            var changed = true
+            while changed {
+                changed = false
+                let nsText = output as NSString
+                let matches = regex.matches(in: output, options: [], range: NSRange(location: 0, length: nsText.length))
+                guard matches.count >= windowSize else {
+                    break
+                }
+
+                for startIndex in stride(from: matches.count - windowSize, through: 0, by: -1) {
+                    let window = Array(matches[startIndex..<(startIndex + windowSize)])
+                    guard let firstRange = Range(window.first!.range, in: output),
+                          let lastRange = Range(window.last!.range, in: output) else {
+                        continue
+                    }
+
+                    let replacementRange = firstRange.lowerBound..<lastRange.upperBound
+                    let original = String(output[replacementRange])
+                    let normalizedWindow = window
+                        .compactMap { Range($0.range, in: output).map { String(output[$0]) } }
+                        .joined()
+                        .lowercased()
+
+                    guard let candidate = candidates[normalizedWindow] else {
+                        continue
+                    }
+
+                    guard canonicalPhraseKey(original) != canonicalPhraseKey(candidate) || original != candidate else {
+                        continue
+                    }
+
+                    output.replaceSubrange(replacementRange, with: candidate)
+                    appliedRules.append("\(original) -> \(candidate)")
+                    changed = true
+                    break
+                }
+            }
+        }
+
+        return MixedLanguageEnhancementResult(text: output, appliedRules: appliedRules.reversed())
     }
 
     private static func containsHanCharacter(_ text: String) -> Bool {
@@ -147,6 +206,31 @@ enum MixedLanguageEnhancer {
             table[trimmed.lowercased()] = trimmed
         }
         return table
+    }
+
+    private static func normalizedPhraseTerms(from rawHints: [String]) -> [String: String] {
+        var table: [String: String] = [:]
+        for hint in rawHints {
+            let trimmed = hint.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard trimmed.rangeOfCharacter(from: CharacterSet.letters) != nil else {
+                continue
+            }
+
+            let normalized = canonicalPhraseKey(trimmed)
+            guard normalized.count >= 4 else {
+                continue
+            }
+
+            table[normalized] = trimmed
+        }
+        return table
+    }
+
+    private static func canonicalPhraseKey(_ text: String) -> String {
+        text
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
     }
 
     private static func normalizedPhoneticTerms(from candidates: [String: String]) -> [String: String] {

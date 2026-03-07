@@ -598,10 +598,12 @@ final class AppController {
             do {
                 let textToRewrite = finalText
                 let localeToRewrite = localeIdentifier
+                let terminologyHints = DictationVocabulary.fuzzyCorrectionTerms(customHints: terminologyRules.hints)
                 let rewritten = try await Task.detached(priority: .userInitiated) {
                     try ClarifyRewriter.rewrite(
                         text: textToRewrite,
-                        localeIdentifier: localeToRewrite
+                        localeIdentifier: localeToRewrite,
+                        terminologyHints: terminologyHints
                     )
                 }.value
                 finalText = rewritten.text

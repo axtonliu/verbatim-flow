@@ -16,7 +16,11 @@ enum ClarifyRewriter {
         let openRouterProviderSort: String?
     }
 
-    static func rewrite(text: String, localeIdentifier: String) throws -> ClarifyRewriteResult {
+    static func rewrite(
+        text: String,
+        localeIdentifier: String,
+        terminologyHints: [String] = []
+    ) throws -> ClarifyRewriteResult {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return ClarifyRewriteResult(text: "", model: "", provider: "")
@@ -26,17 +30,10 @@ enum ClarifyRewriter {
         let fileValues = OpenAISettings.loadValues()
         let transport = try resolvedClarifyTransport(environment: env, fileValues: fileValues)
 
-        let systemPrompt = """
-You are VerbatimFlow Clarify mode.
-Rewrite spoken dictation into clear written text.
-Rules:
-- Keep original meaning, facts, numbers, proper nouns, and intent.
-- Do not add new information.
-- Remove filler words and obvious repetition.
-- Keep the same language as the input (Chinese stays Chinese; mixed-language stays mixed).
-- If Chinese or Chinese-dominant, use full-width Chinese punctuation (，。！？；：).
-- Output plain text only. No markdown. No explanation.
-"""
+        let systemPrompt = buildSystemPrompt(
+            localeIdentifier: localeIdentifier,
+            terminologyHints: terminologyHints
+        )
 
         var payload: [String: Any] = [
             "model": transport.model,
@@ -103,7 +100,7 @@ Rules:
             throw AppError.openAIClarifyFailed("Response has no choices.message.content field")
         }
 
-        let rewritten = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rewritten = normalizeOutput(content.trimmingCharacters(in: .whitespacesAndNewlines))
         if rewritten.isEmpty {
             throw AppError.openAIClarifyFailed("Clarify response is empty")
         }
@@ -113,6 +110,77 @@ Rules:
             model: transport.model,
             provider: transport.provider
         )
+    }
+
+    static func buildSystemPrompt(localeIdentifier: String, terminologyHints: [String]) -> String {
+        let normalizedHints = terminologyHints
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        var prompt = """
+You are VerbatimFlow Clarify mode.
+Rewrite spoken dictation into clear written text.
+Rules:
+- Keep original meaning, facts, numbers, proper nouns, and intent.
+- Do not add new information.
+- Remove filler words and obvious repetition.
+- Keep the same language as the input (Chinese stays Chinese; mixed-language stays mixed).
+- If the input clearly contains multiple next steps, tasks, or action items, format them as a plain-text bullet list using "- ", one item per line.
+- If the input is not an action list, keep natural paragraph form.
+- Preserve the original order of action items and do not omit any.
+- If Chinese or Chinese-dominant, use full-width Chinese punctuation (，。！？；：).
+- Output plain text only. No markdown explanation. No code fences.
+"""
+
+        if !normalizedHints.isEmpty {
+            prompt += "\nPreferred terms: \(normalizedHints.prefix(24).joined(separator: ", "))"
+        }
+
+        if localeIdentifier.lowercased().hasPrefix("zh") {
+            prompt += "\nDefault writing style: concise written Chinese."
+        }
+
+        return prompt
+    }
+
+    static func normalizeOutput(_ text: String) -> String {
+        let rawLines = text.components(separatedBy: .newlines)
+        guard !rawLines.isEmpty else {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let listPattern = #"^\s*(?:[-*•]\s+|\d+[.)]\s+|[一二三四五六七八九十]+[、.．]\s+)"#
+        var normalizedLines: [String] = []
+        normalizedLines.reserveCapacity(rawLines.count)
+
+        for rawLine in rawLines {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                normalizedLines.append("")
+                continue
+            }
+
+            let normalizedLine = replace(trimmed, pattern: listPattern, template: "- ")
+            normalizedLines.append(normalizedLine)
+        }
+
+        var collapsed: [String] = []
+        collapsed.reserveCapacity(normalizedLines.count)
+        var previousBlank = false
+
+        for line in normalizedLines {
+            if line.isEmpty {
+                if !previousBlank {
+                    collapsed.append("")
+                }
+                previousBlank = true
+            } else {
+                collapsed.append(line)
+                previousBlank = false
+            }
+        }
+
+        return collapsed.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func resolvedClarifyTransport(
@@ -347,5 +415,13 @@ Rules:
             .appendingPathComponent("chat")
             .appendingPathComponent("completions")
             .absoluteString
+    }
+
+    private static func replace(_ input: String, pattern: String, template: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return input
+        }
+        let range = NSRange(input.startIndex..<input.endIndex, in: input)
+        return regex.stringByReplacingMatches(in: input, options: [], range: range, withTemplate: template)
     }
 }
