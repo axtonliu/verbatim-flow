@@ -74,4 +74,18 @@ final class TextGuardTests: XCTestCase {
         XCTAssertFalse(result.text.contains("\n\n"))
         XCTAssertFalse(result.fellBackToRaw)
     }
+
+    func testFormatOnlyDoesNotSplitParagraphOnSemicolonsAlone() {
+        let guardEngine = TextGuard(mode: .formatOnly)
+        let result = guardEngine.apply(
+            raw: "第一点是把文档补齐；第二点是补测试；第三点是再做一次回归。最后再准备发布说明。"
+        )
+
+        XCTAssertEqual(
+            result.text,
+            "第一点是把文档补齐；第二点是补测试；第三点是再做一次回归。最后再准备发布说明。"
+        )
+        XCTAssertFalse(result.text.contains("\n\n"))
+        XCTAssertFalse(result.fellBackToRaw)
+    }
 }

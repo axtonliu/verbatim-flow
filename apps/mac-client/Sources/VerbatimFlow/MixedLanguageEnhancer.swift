@@ -219,7 +219,13 @@ enum MixedLanguageEnhancer {
                     continue
                 }
 
-                output.replaceSubrange(range, with: alias.target)
+                let replacement = spacedReplacementIfNeeded(
+                    original: original,
+                    target: alias.target,
+                    in: output,
+                    replacing: range
+                )
+                output.replaceSubrange(range, with: replacement)
                 appliedRules.append("\(original) -> \(alias.target)")
             }
         }
@@ -454,6 +460,45 @@ enum MixedLanguageEnhancer {
         }
 
         return candidate.lowercased()
+    }
+
+    private static func spacedReplacementIfNeeded(
+        original: String,
+        target: String,
+        in text: String,
+        replacing range: Range<String.Index>
+    ) -> String {
+        guard containsHanCharacter(original),
+              target.rangeOfCharacter(from: CharacterSet.letters) != nil else {
+            return target
+        }
+
+        var replacement = target
+        if let previous = previousCharacter(in: text, before: range.lowerBound), isHanCharacter(previous) {
+            replacement = " " + replacement
+        }
+        if let next = nextCharacter(in: text, after: range.upperBound), isHanCharacter(next) {
+            replacement += " "
+        }
+        return replacement
+    }
+
+    private static func previousCharacter(in text: String, before index: String.Index) -> Character? {
+        guard index > text.startIndex else {
+            return nil
+        }
+        return text[text.index(before: index)]
+    }
+
+    private static func nextCharacter(in text: String, after index: String.Index) -> Character? {
+        guard index < text.endIndex else {
+            return nil
+        }
+        return text[index]
+    }
+
+    private static func isHanCharacter(_ character: Character) -> Bool {
+        character.unicodeScalars.contains(where: \.properties.isIdeographic)
     }
 
     private static func latinSkeleton(for text: String) -> String {

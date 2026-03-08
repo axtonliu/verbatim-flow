@@ -57,4 +57,13 @@ final class ClarifyRewriterTests: XCTestCase {
 
         XCTAssertFalse(shouldReject)
     }
+
+    func testAllowsBulletListWhenItClearlyRewritesUserListDictation() {
+        let shouldReject = ClarifyRewriter.shouldRejectAsAssistantAnswer(
+            input: "第一项检查代码第二项补测试第三项更新文档",
+            output: "- 第一项：检查代码\n- 第二项：补测试\n- 第三项：更新文档"
+        )
+
+        XCTAssertFalse(shouldReject)
+    }
 }

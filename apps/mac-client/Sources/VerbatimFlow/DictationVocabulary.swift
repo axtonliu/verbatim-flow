@@ -151,12 +151,18 @@ enum DictationVocabulary {
         aliasProfiles.filter { containsHan($0.source) }
     }
 
+    // Canonical key for built-in English brand/term matching.
+    // This intentionally strips everything except ASCII letters/digits so
+    // "GPT-5", "gpt 5", and "GPT5" resolve to the same vocabulary term.
     private static func normalizedTermKey(_ term: String) -> String {
         term
             .lowercased()
             .replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
     }
 
+    // Canonical key for alias/source matching.
+    // Unlike normalizedTermKey, this preserves Han characters and only
+    // removes whitespace so aliases like "金版" or "克劳德" still match.
     private static func normalizedTokenKey(_ token: String) -> String {
         token
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)

@@ -64,7 +64,7 @@ final class MixedLanguageEnhancerTests: XCTestCase {
             vocabularyHints: ["Claude", "GPT", "Gemini"]
         )
 
-        XCTAssertEqual(result.text, "Claude 和 GPT 都更理性，而Gemini呢会偏销售风格")
+        XCTAssertEqual(result.text, "Claude 和 GPT 都更理性，而 Gemini 呢会偏销售风格")
         XCTAssertEqual(result.appliedRules, ["金版 -> Gemini"])
     }
 
@@ -86,6 +86,8 @@ final class MixedLanguageEnhancerTests: XCTestCase {
             vocabularyHints: ["Git", "GitHub", "GPT"]
         )
 
+        // "Git" should remain unchanged here because the GPT alias rule is contextual
+        // and this sentence lacks AI-specific nearby keywords.
         XCTAssertEqual(result.text, "这个 Git 仓库我已经 push 到 GitHub 了")
         XCTAssertEqual(result.appliedRules, [])
     }

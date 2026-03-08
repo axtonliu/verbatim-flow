@@ -343,7 +343,7 @@ struct TextGuard {
 
         for character in text {
             current.append(character)
-            if "。！？!?；;".contains(character) {
+            if "。！？!?".contains(character) {
                 let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     sentences.append(trimmed)

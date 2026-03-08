@@ -260,11 +260,28 @@ Rewrite only the transcript inside <dictation> tags.
             return true
         }
 
-        if trimmed.hasPrefix("- ") || trimmed.hasPrefix("1. ") || trimmed.hasPrefix("1) ") {
+        if looksLikeGeneratedListResponse(trimmed) {
             return true
         }
 
         return lowered.contains("可以进行以下") || lowered.contains("以下优化任务") || lowered.contains("here are the")
+    }
+
+    private static func looksLikeGeneratedListResponse(_ text: String) -> Bool {
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard lines.count >= 2 else {
+            return false
+        }
+
+        let listLikeLines = lines.filter {
+            $0.hasPrefix("- ") || $0.hasPrefix("1. ") || $0.hasPrefix("1) ") || $0.hasPrefix("2. ") || $0.hasPrefix("2) ")
+        }
+
+        return listLikeLines.count >= 2
     }
 
     static func tokenOverlapRatio(source: String, candidate: String) -> Double {
