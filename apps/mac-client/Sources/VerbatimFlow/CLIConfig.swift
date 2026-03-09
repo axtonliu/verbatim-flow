@@ -11,6 +11,8 @@ enum RecognitionEngine: String {
     case apple
     case whisper
     case openai
+    case qwen
+    case mlxWhisper = "mlx-whisper"
 
     var displayName: String {
         switch self {
@@ -20,6 +22,10 @@ enum RecognitionEngine: String {
             return "Whisper"
         case .openai:
             return "OpenAI Cloud"
+        case .qwen:
+            return "Qwen3 ASR"
+        case .mlxWhisper:
+            return "MLX Whisper"
         }
     }
 }
@@ -30,6 +36,20 @@ enum OpenAITranscriptionModel: String, CaseIterable {
 
     var displayName: String {
         rawValue
+    }
+}
+
+enum QwenModel: String, CaseIterable {
+    case small = "mlx-community/Qwen3-ASR-0.6B-8bit"
+    case large = "mlx-community/Qwen3-ASR-1.7B-8bit"
+
+    var displayName: String {
+        switch self {
+        case .small:
+            return "Qwen3-ASR-0.6B"
+        case .large:
+            return "Qwen3-ASR-1.7B"
+        }
     }
 }
 
@@ -74,6 +94,7 @@ struct CLIConfig {
     let whisperModel: WhisperModel
     let whisperComputeType: String
     let openAIModel: OpenAITranscriptionModel
+    let qwenModel: QwenModel
     let localeIdentifier: String
     let hotkey: Hotkey
     let requireOnDeviceRecognition: Bool
@@ -85,11 +106,38 @@ struct CLIConfig {
         whisperModel: .tiny,
         whisperComputeType: "int8",
         openAIModel: .gpt4oMiniTranscribe,
+        qwenModel: .small,
         localeIdentifier: Locale.current.identifier,
         hotkey: .default,
         requireOnDeviceRecognition: false,
         dryRun: false
     )
+
+    private func replacing(
+        mode: OutputMode? = nil,
+        recognitionEngine: RecognitionEngine? = nil,
+        whisperModel: WhisperModel? = nil,
+        whisperComputeType: String? = nil,
+        openAIModel: OpenAITranscriptionModel? = nil,
+        qwenModel: QwenModel? = nil,
+        localeIdentifier: String? = nil,
+        hotkey: Hotkey? = nil,
+        requireOnDeviceRecognition: Bool? = nil,
+        dryRun: Bool? = nil
+    ) -> CLIConfig {
+        CLIConfig(
+            mode: mode ?? self.mode,
+            recognitionEngine: recognitionEngine ?? self.recognitionEngine,
+            whisperModel: whisperModel ?? self.whisperModel,
+            whisperComputeType: whisperComputeType ?? self.whisperComputeType,
+            openAIModel: openAIModel ?? self.openAIModel,
+            qwenModel: qwenModel ?? self.qwenModel,
+            localeIdentifier: localeIdentifier ?? self.localeIdentifier,
+            hotkey: hotkey ?? self.hotkey,
+            requireOnDeviceRecognition: requireOnDeviceRecognition ?? self.requireOnDeviceRecognition,
+            dryRun: dryRun ?? self.dryRun
+        )
+    }
 
     static func parse() throws -> CLIConfig {
         var config = CLIConfig.default
@@ -104,138 +152,54 @@ struct CLIConfig {
                 guard index < args.count, let mode = OutputMode(rawValue: args[index]) else {
                     throw ConfigError.invalidValue("--mode", "raw | format-only | clarify")
                 }
-                config = CLIConfig(
-                    mode: mode,
-                    recognitionEngine: config.recognitionEngine,
-                    whisperModel: config.whisperModel,
-                    whisperComputeType: config.whisperComputeType,
-                    openAIModel: config.openAIModel,
-                    localeIdentifier: config.localeIdentifier,
-                    hotkey: config.hotkey,
-                    requireOnDeviceRecognition: config.requireOnDeviceRecognition,
-                    dryRun: config.dryRun
-                )
+                config = config.replacing(mode: mode)
             case "--engine":
                 index += 1
                 guard index < args.count, let engine = RecognitionEngine(rawValue: args[index]) else {
-                    throw ConfigError.invalidValue("--engine", "apple | whisper | openai")
+                    throw ConfigError.invalidValue("--engine", "apple | whisper | openai | qwen | mlx-whisper")
                 }
-                config = CLIConfig(
-                    mode: config.mode,
-                    recognitionEngine: engine,
-                    whisperModel: config.whisperModel,
-                    whisperComputeType: config.whisperComputeType,
-                    openAIModel: config.openAIModel,
-                    localeIdentifier: config.localeIdentifier,
-                    hotkey: config.hotkey,
-                    requireOnDeviceRecognition: config.requireOnDeviceRecognition,
-                    dryRun: config.dryRun
-                )
+                config = config.replacing(recognitionEngine: engine)
             case "--whisper-model":
                 index += 1
                 guard index < args.count, let model = WhisperModel(rawValue: args[index]) else {
                     throw ConfigError.invalidValue("--whisper-model", "tiny | base | small | medium | large-v3")
                 }
-                config = CLIConfig(
-                    mode: config.mode,
-                    recognitionEngine: config.recognitionEngine,
-                    whisperModel: model,
-                    whisperComputeType: config.whisperComputeType,
-                    openAIModel: config.openAIModel,
-                    localeIdentifier: config.localeIdentifier,
-                    hotkey: config.hotkey,
-                    requireOnDeviceRecognition: config.requireOnDeviceRecognition,
-                    dryRun: config.dryRun
-                )
+                config = config.replacing(whisperModel: model)
             case "--whisper-compute-type":
                 index += 1
                 guard index < args.count else {
                     throw ConfigError.missingValue("--whisper-compute-type")
                 }
-                config = CLIConfig(
-                    mode: config.mode,
-                    recognitionEngine: config.recognitionEngine,
-                    whisperModel: config.whisperModel,
-                    whisperComputeType: args[index],
-                    openAIModel: config.openAIModel,
-                    localeIdentifier: config.localeIdentifier,
-                    hotkey: config.hotkey,
-                    requireOnDeviceRecognition: config.requireOnDeviceRecognition,
-                    dryRun: config.dryRun
-                )
+                config = config.replacing(whisperComputeType: args[index])
             case "--openai-model":
                 index += 1
                 guard index < args.count, let model = OpenAITranscriptionModel(rawValue: args[index]) else {
                     throw ConfigError.invalidValue("--openai-model", "gpt-4o-mini-transcribe | whisper-1")
                 }
-                config = CLIConfig(
-                    mode: config.mode,
-                    recognitionEngine: config.recognitionEngine,
-                    whisperModel: config.whisperModel,
-                    whisperComputeType: config.whisperComputeType,
-                    openAIModel: model,
-                    localeIdentifier: config.localeIdentifier,
-                    hotkey: config.hotkey,
-                    requireOnDeviceRecognition: config.requireOnDeviceRecognition,
-                    dryRun: config.dryRun
-                )
+                config = config.replacing(openAIModel: model)
+            case "--qwen-model":
+                index += 1
+                guard index < args.count, let model = QwenModel(rawValue: args[index]) else {
+                    throw ConfigError.invalidValue("--qwen-model", QwenModel.allCases.map(\.rawValue).joined(separator: " | "))
+                }
+                config = config.replacing(qwenModel: model)
             case "--locale":
                 index += 1
                 guard index < args.count else {
                     throw ConfigError.missingValue("--locale")
                 }
-                config = CLIConfig(
-                    mode: config.mode,
-                    recognitionEngine: config.recognitionEngine,
-                    whisperModel: config.whisperModel,
-                    whisperComputeType: config.whisperComputeType,
-                    openAIModel: config.openAIModel,
-                    localeIdentifier: args[index],
-                    hotkey: config.hotkey,
-                    requireOnDeviceRecognition: config.requireOnDeviceRecognition,
-                    dryRun: config.dryRun
-                )
+                config = config.replacing(localeIdentifier: args[index])
             case "--hotkey":
                 index += 1
                 guard index < args.count else {
                     throw ConfigError.missingValue("--hotkey")
                 }
                 let parsed = try HotkeyParser.parse(combo: args[index])
-                config = CLIConfig(
-                    mode: config.mode,
-                    recognitionEngine: config.recognitionEngine,
-                    whisperModel: config.whisperModel,
-                    whisperComputeType: config.whisperComputeType,
-                    openAIModel: config.openAIModel,
-                    localeIdentifier: config.localeIdentifier,
-                    hotkey: parsed,
-                    requireOnDeviceRecognition: config.requireOnDeviceRecognition,
-                    dryRun: config.dryRun
-                )
+                config = config.replacing(hotkey: parsed)
             case "--require-on-device":
-                config = CLIConfig(
-                    mode: config.mode,
-                    recognitionEngine: config.recognitionEngine,
-                    whisperModel: config.whisperModel,
-                    whisperComputeType: config.whisperComputeType,
-                    openAIModel: config.openAIModel,
-                    localeIdentifier: config.localeIdentifier,
-                    hotkey: config.hotkey,
-                    requireOnDeviceRecognition: true,
-                    dryRun: config.dryRun
-                )
+                config = config.replacing(requireOnDeviceRecognition: true)
             case "--dry-run":
-                config = CLIConfig(
-                    mode: config.mode,
-                    recognitionEngine: config.recognitionEngine,
-                    whisperModel: config.whisperModel,
-                    whisperComputeType: config.whisperComputeType,
-                    openAIModel: config.openAIModel,
-                    localeIdentifier: config.localeIdentifier,
-                    hotkey: config.hotkey,
-                    requireOnDeviceRecognition: config.requireOnDeviceRecognition,
-                    dryRun: true
-                )
+                config = config.replacing(dryRun: true)
             case "--help", "-h":
                 HelpPrinter.printAndExit()
             default:
@@ -271,7 +235,7 @@ enum HelpPrinter {
             "verbatim-flow",
             "",
             "Usage:",
-            "  verbatim-flow [--mode raw|format-only|clarify] [--engine apple|whisper|openai] [--whisper-model tiny|base|small|medium|large-v3] [--whisper-compute-type int8|int8_float16|float16|float32] [--openai-model gpt-4o-mini-transcribe|whisper-1] [--locale <id>] [--hotkey ctrl+shift+space|shift+option] [--require-on-device] [--dry-run]",
+            "  verbatim-flow [--mode raw|format-only|clarify] [--engine apple|whisper|openai|qwen|mlx-whisper] [--whisper-model tiny|base|small|medium|large-v3] [--whisper-compute-type int8|int8_float16|float16|float32] [--openai-model gpt-4o-mini-transcribe|whisper-1] [--qwen-model <hf-id>] [--locale <id>] [--hotkey ctrl+shift+space|shift+option] [--require-on-device] [--dry-run]",
             "",
             "Defaults:",
             "  --mode raw",
@@ -279,6 +243,7 @@ enum HelpPrinter {
             "  --whisper-model tiny",
             "  --whisper-compute-type int8",
             "  --openai-model gpt-4o-mini-transcribe",
+            "  --qwen-model \(QwenModel.small.rawValue)",
             "  --locale system locale",
             "  --hotkey ctrl+shift+space",
             ""

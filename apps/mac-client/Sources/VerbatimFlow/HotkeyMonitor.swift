@@ -15,12 +15,16 @@ final class HotkeyMonitor {
     private var eventHandlerRef: EventHandlerRef?
     private var hotKeyRef: EventHotKeyRef?
     private var retainedSelfForCarbonHandler: Unmanaged<HotkeyMonitor>?
-    private let hotKeyID = EventHotKeyID(signature: OSType(0x56464B59), id: 1) // "VFKY"
+    private static var nextID: UInt32 = 1
+    private let hotKeyID: EventHotKeyID
     private var isPressed = false
     private var releaseWatchdog: DispatchSourceTimer?
     private var releaseWatchdogMismatchCount = 0
 
     init(hotkey: Hotkey, onPressed: @escaping () -> Bool, onReleased: @escaping () -> Void) {
+        let id = Self.nextID
+        Self.nextID += 1
+        self.hotKeyID = EventHotKeyID(signature: OSType(0x56464B59), id: id) // "VFKY"
         self.hotkey = hotkey
         self.onPressed = onPressed
         self.onReleased = onReleased
@@ -199,7 +203,7 @@ final class HotkeyMonitor {
         }
 
         guard incomingHotKeyID.signature == hotKeyID.signature, incomingHotKeyID.id == hotKeyID.id else {
-            return noErr
+            return OSStatus(eventNotHandledErr)
         }
 
         let kind = GetEventKind(eventRef)
@@ -332,7 +336,11 @@ final class HotkeyMonitor {
             return false
         }
 
-        guard let keyCode = hotkey.keyCode else {
+        // When using Carbon hotkeys, skip the key code check — Carbon
+        // consumes the key event so CGEventSource.keyState returns false
+        // even while the key is physically held.  Carbon's own
+        // kEventHotKeyReleased handles key-code release detection.
+        guard hotKeyRef == nil, let keyCode = hotkey.keyCode else {
             return true
         }
 
@@ -344,7 +352,9 @@ final class HotkeyMonitor {
             return false
         }
 
-        guard let keyCode = hotkey.keyCode else {
+        // Same rationale as isHotkeyCurrentlyDownByFlags — skip key code
+        // check for Carbon hotkeys.
+        guard hotKeyRef == nil, let keyCode = hotkey.keyCode else {
             return true
         }
 

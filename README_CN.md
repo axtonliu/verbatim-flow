@@ -31,7 +31,7 @@ VerbatimFlow 是一个 macOS 菜单栏语音输入工具，转写语音后直接
 
 - **按住说话** — 按住热键录音，松开即转写并注入文本
 - **两种模式** — `Standard`（忠实转写 + 基于规则的格式化：标点、空格、大小写）和 `Clarify`（LLM 驱动的精简改写，主动选择才生效）
-- **多引擎支持** — Apple Speech、本地 Whisper、OpenAI 云端
+- **多引擎支持** — Apple Speech、本地 Whisper、OpenAI 云端、Qwen3 ASR（本地，Apple Silicon）
 - **即时注入** — 通过 Accessibility API 直接在活跃 App 中插入文本
 - **一键撤回** — 回滚上一次插入的转写结果
 - **完全开源** — 每一行代码可读；你的音频，你做主
@@ -55,7 +55,7 @@ VerbatimFlow 是一个 macOS 菜单栏语音输入工具，转写语音后直接
 | **全局热键稳定** | 按住录，松开转写，不卡状态。双信号 watchdog + handshake 机制防"伪按下" |
 | **权限稳定** | 固定 bundle ID 签名，重启后不频繁重新授权 |
 | **插入稳定** | AX → Cmd+V → Unicode typing 三级回落，Terminal / Codex / 标准编辑器都能上屏 |
-| **引擎可切换** | Apple Speech / Whisper (tiny–large-v3) / OpenAI Cloud (gpt-4o-mini-transcribe, whisper-1) |
+| **引擎可切换** | Apple Speech / Whisper (tiny–large-v3) / OpenAI Cloud (gpt-4o-mini-transcribe, whisper-1) / Qwen3 ASR (0.6B / 1.7B，Apple Silicon 本地) |
 | **失败可恢复** | 转写失败自动保存录音，菜单一键重试，不丢内容 |
 | **设置可持久化** | 热键、模式、引擎、模型、语言等核心配置重启保留 |
 
@@ -64,12 +64,12 @@ VerbatimFlow 是一个 macOS 菜单栏语音输入工具，转写语音后直接
 - **菜单栏应用** — 以 V 形图标驻留在 macOS 菜单栏，实时状态徽标（● 录音中、○ 处理中、— 已暂停）
 - **双热键** — 主热键使用当前模式；副热键（`Cmd+Shift+Space`）临时强制 Clarify 模式，仅作用一次
 - **热键预设切换** — 支持 `Ctrl+Shift+Space` / `Option+Space` / `Fn`，菜单内切换无需重启
-- **多引擎运行时切换** — Apple Speech / Whisper / OpenAI 云端，菜单内一键切换
+- **多引擎运行时切换** — Apple Speech / Whisper / OpenAI 云端 / Qwen3 ASR，菜单内一键切换
 - **Whisper 模型选择** — tiny / base / small / medium / large-v3
 - **Clarify 整理** — 支持 OpenAI 和 OpenRouter 双通道，独立配置 provider、model、API key
 - **术语词典** — 自定义纠正规则（单词纠正 + `source => target` 替换）
 - **中英混合增强** — 专门的混合语言后处理优化
-- **语言选择** — System Default / zh-Hans / en-US
+- **语言选择** — System Default / zh-Hans / zh-Hant / en-US
 - **转写历史** — 菜单内查看最近转写，支持 Copy + 撤回上次插入
 - **失败录音重试** — 转写失败时音频自动持久化，一键重试
 - **权限诊断** — 内置权限快照报告、一键跳转系统设置
@@ -89,6 +89,7 @@ VerbatimFlow 是一个 macOS 菜单栏语音输入工具，转写语音后直接
 - macOS 14+（推荐 Sonoma 及以上）
 - Xcode 16+
 - 麦克风和辅助功能权限
+- Apple Silicon（M1/M2/M3/M4）或 Intel Mac（支持 Universal Binary）
 
 ```bash
 git clone https://github.com/axtonliu/verbatim-flow.git
@@ -181,6 +182,9 @@ verbatim-flow/
 │   │   ├── TerminologyDictionary.swift
 │   │   └── ...
 │   ├── Tests/VerbatimFlowTests/ # 单元测试
+│   ├── python/                  # Python ASR 脚本
+│   │   ├── scripts/             # CLI 入口（transcribe_qwen.py）
+│   │   └── verbatim_flow/       # Qwen3 ASR 转写模块
 │   ├── Package.swift
 │   └── dist/                    # 构建产物（.app, .dmg）
 ├── packages/                    # 共享包占位
@@ -217,11 +221,14 @@ verbatim-flow/
 
 ## 路线图
 
+- [x] 原生 Swift 路径集成 Whisper 引擎
+- [x] 中英混合识别优化
+- [x] Qwen3 ASR 本地引擎（0.6B / 1.7B，Apple Silicon）
+- [x] 繁体中文（zh-Hant）语言选项
+- [x] Universal Binary（Intel + Apple Silicon）
 - [ ] 流式转写（边说边出字）
-- [ ] 原生 Swift 路径集成 Whisper 引擎
 - [ ] 可配置的 text guard 灵敏度阈值
 - [ ] 按应用自定义模式 profile
-- [ ] 中英混合识别进一步优化
 
 ## 贡献
 
@@ -238,6 +245,9 @@ verbatim-flow/
 - [Apple Speech Framework](https://developer.apple.com/documentation/speech) — 设备端语音识别
 - [OpenAI Whisper](https://openai.com/research/whisper) — 开源 ASR 模型
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 基于 CTranslate2 的 Whisper 推理（Python MVP）
+- [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) — 阿里 Qwen 团队的多语言 ASR 模型
+- [mlx-audio](https://github.com/Blaizzy/mlx-audio) — Apple Silicon 优化的音频 ML 框架
+- [OpenCC](https://github.com/BYVoid/OpenCC) — 简繁中文转换
 
 ## 许可证
 
