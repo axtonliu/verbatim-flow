@@ -14,6 +14,7 @@ final class FailedRecordingStoreTests: XCTestCase {
             sourceAudioURL: sourceAudioURL,
             recognitionEngine: .openai,
             localeIdentifier: "zh-Hans",
+            languageIsAutoDetect: false,
             whisperModel: .small,
             whisperComputeType: "int8",
             openAIModel: .gpt4oMiniTranscribe,
@@ -28,6 +29,7 @@ final class FailedRecordingStoreTests: XCTestCase {
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded?.recognitionEngineRawValue, RecognitionEngine.openai.rawValue)
         XCTAssertEqual(loaded?.localeIdentifier, "zh-Hans")
+        XCTAssertEqual(loaded?.languageIsAutoDetect, false)
         XCTAssertEqual(loaded?.openAIModelRawValue, OpenAITranscriptionModel.gpt4oMiniTranscribe.rawValue)
 
         FailedRecordingStore.clear(baseDirectory: root)
@@ -45,6 +47,7 @@ final class FailedRecordingStoreTests: XCTestCase {
             sourceAudioURL: sourceAudioURL,
             recognitionEngine: .qwen,
             localeIdentifier: "en-US",
+            languageIsAutoDetect: true,
             whisperModel: .tiny,
             whisperComputeType: "int8",
             openAIModel: .gpt4oMiniTranscribe,

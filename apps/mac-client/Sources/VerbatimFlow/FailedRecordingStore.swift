@@ -5,6 +5,7 @@ enum FailedRecordingStore {
         let audioFilePath: String
         let recognitionEngineRawValue: String
         let localeIdentifier: String
+        let languageIsAutoDetect: Bool?
         let whisperModelRawValue: String
         let whisperComputeType: String
         let openAIModelRawValue: String
@@ -83,6 +84,7 @@ enum FailedRecordingStore {
         sourceAudioURL: URL,
         recognitionEngine: RecognitionEngine,
         localeIdentifier: String,
+        languageIsAutoDetect: Bool,
         whisperModel: WhisperModel,
         whisperComputeType: String,
         openAIModel: OpenAITranscriptionModel,
@@ -108,6 +110,7 @@ enum FailedRecordingStore {
                 audioFilePath: pathSet.audioFileURL.path,
                 recognitionEngineRawValue: recognitionEngine.rawValue,
                 localeIdentifier: localeIdentifier,
+                languageIsAutoDetect: languageIsAutoDetect,
                 whisperModelRawValue: whisperModel.rawValue,
                 whisperComputeType: whisperComputeType,
                 openAIModelRawValue: openAIModel.rawValue,
