@@ -1157,11 +1157,10 @@ final class SpeechTranscriber {
             )
         }
 
-        // 3. Well-known source tree path (covers /Applications install)
-        let home = fileManager.homeDirectoryForCurrentUser
-        candidates.append(
-            home.appendingPathComponent("dev/verbatim-flow/apps/mac-client/python/.venv/bin/python")
-        )
+        // 3. User-configured Python path via environment variable
+        if let envPath = ProcessInfo.processInfo.environment["VERBATIMFLOW_PYTHON_PATH"] {
+            candidates.append(URL(fileURLWithPath: envPath))
+        }
 
         for candidate in candidates {
             let resolved = candidate.standardizedFileURL
