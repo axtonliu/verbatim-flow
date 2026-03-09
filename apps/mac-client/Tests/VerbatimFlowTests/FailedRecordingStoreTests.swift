@@ -17,6 +17,7 @@ final class FailedRecordingStoreTests: XCTestCase {
             whisperModel: .small,
             whisperComputeType: "int8",
             openAIModel: .gpt4oMiniTranscribe,
+            qwenModel: .small,
             durationSeconds: 3.2,
             baseDirectory: root
         )
@@ -31,6 +32,34 @@ final class FailedRecordingStoreTests: XCTestCase {
 
         FailedRecordingStore.clear(baseDirectory: root)
         XCTAssertNil(FailedRecordingStore.load(baseDirectory: root))
+    }
+
+    func testSaveAndLoadWithQwenEngine() throws {
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceAudioURL = root.appendingPathComponent("source-qwen.m4a")
+        try Data("fake-audio".utf8).write(to: sourceAudioURL)
+
+        let saved = FailedRecordingStore.save(
+            sourceAudioURL: sourceAudioURL,
+            recognitionEngine: .qwen,
+            localeIdentifier: "en-US",
+            whisperModel: .tiny,
+            whisperComputeType: "int8",
+            openAIModel: .gpt4oMiniTranscribe,
+            qwenModel: .large,
+            durationSeconds: 5.0,
+            baseDirectory: root
+        )
+        XCTAssertNotNil(saved)
+
+        let loaded = FailedRecordingStore.load(baseDirectory: root)
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(loaded?.recognitionEngine, .qwen)
+        XCTAssertEqual(loaded?.qwenModelRawValue, QwenModel.large.rawValue)
+
+        FailedRecordingStore.clear(baseDirectory: root)
     }
 
     private func makeTemporaryDirectory() -> URL {

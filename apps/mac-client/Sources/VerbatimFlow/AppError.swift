@@ -9,6 +9,10 @@ enum AppError: Error, CustomStringConvertible {
     case whisperTranscriptionFailed(String)
     case openAIAPIKeyMissing
     case openAITranscriptionFailed(String)
+    case qwenScriptNotFound
+    case qwenTranscriptionFailed(String)
+    case mlxWhisperScriptNotFound
+    case mlxWhisperTranscriptionFailed(String)
     case openAIClarifyFailed(String)
     case retryAudioUnavailable
     case retryAudioUnsupportedEngine(String)
@@ -25,7 +29,7 @@ enum AppError: Error, CustomStringConvertible {
         case .audioRecorderStartFailed:
             return "Failed to start audio recorder"
         case .whisperScriptNotFound:
-            return "Whisper script not found. Expected python/scripts/transcribe_once.py in the project."
+            return "Whisper script not found. Expected apps/mac-client/python/scripts/transcribe_once.py or Contents/Resources/python/scripts/transcribe_once.py."
         case .pythonRuntimeNotFound:
             return "Python runtime for Whisper is unavailable. Run python setup first."
         case .whisperTranscriptionFailed(let details):
@@ -40,6 +44,20 @@ enum AppError: Error, CustomStringConvertible {
                 return "OpenAI Cloud transcription failed"
             }
             return "OpenAI Cloud transcription failed: \(details)"
+        case .qwenScriptNotFound:
+            return "Qwen ASR script not found. Expected apps/mac-client/python/scripts/transcribe_qwen.py or Contents/Resources/python/scripts/transcribe_qwen.py."
+        case .qwenTranscriptionFailed(let details):
+            if details.isEmpty {
+                return "Qwen ASR transcription failed"
+            }
+            return "Qwen ASR transcription failed: \(details)"
+        case .mlxWhisperScriptNotFound:
+            return "MLX Whisper script not found. Expected apps/mac-client/python/scripts/transcribe_mlx_whisper.py or Contents/Resources/python/scripts/transcribe_mlx_whisper.py."
+        case .mlxWhisperTranscriptionFailed(let details):
+            if details.isEmpty {
+                return "MLX Whisper transcription failed"
+            }
+            return "MLX Whisper transcription failed: \(details)"
         case .openAIClarifyFailed(let details):
             if details.isEmpty {
                 return "OpenAI clarify rewrite failed"

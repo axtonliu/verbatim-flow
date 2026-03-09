@@ -11,7 +11,9 @@ final class SpeechTranscriber {
     private let recognitionEngine: RecognitionEngine
     private let whisperModel: WhisperModel
     private let openAIModel: OpenAITranscriptionModel
+    private let qwenModel: QwenModel
     private let whisperComputeType: String
+    private let languageIsAutoDetect: Bool
 
     private let audioEngine = AVAudioEngine()
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -33,14 +35,18 @@ final class SpeechTranscriber {
         recognitionEngine: RecognitionEngine,
         whisperModel: WhisperModel,
         openAIModel: OpenAITranscriptionModel,
-        whisperComputeType: String
+        qwenModel: QwenModel,
+        whisperComputeType: String,
+        languageIsAutoDetect: Bool = false
     ) {
         self.localeIdentifier = localeIdentifier
         self.requireOnDeviceRecognition = requireOnDeviceRecognition
         self.recognitionEngine = recognitionEngine
         self.whisperModel = whisperModel
         self.openAIModel = openAIModel
+        self.qwenModel = qwenModel
         self.whisperComputeType = whisperComputeType
+        self.languageIsAutoDetect = languageIsAutoDetect
         self.failedRecordingEntry = FailedRecordingStore.load()
     }
 
@@ -64,9 +70,7 @@ final class SpeechTranscriber {
         switch recognitionEngine {
         case .apple:
             try startAppleSpeechRecording()
-        case .whisper:
-            try startFileRecording()
-        case .openai:
+        case .whisper, .openai, .qwen, .mlxWhisper:
             try startFileRecording()
         }
     }
@@ -79,6 +83,10 @@ final class SpeechTranscriber {
             return try await stopWhisperRecording()
         case .openai:
             return try await stopOpenAIRecording()
+        case .qwen:
+            return try await stopQwenRecording()
+        case .mlxWhisper:
+            return try await stopMlxWhisperRecording()
         }
     }
 
@@ -151,6 +159,45 @@ final class SpeechTranscriber {
                             modelOverride: model,
                             prompt: prompt,
                             timeout: timeout
+                        )
+                        continuation.resume(returning: text)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        case .qwen:
+            let qwenModelId = entry.qwenModelRawValue ?? QwenModel.small.rawValue
+            // NOTE: Uses current languageIsAutoDetect, not the value at recording time.
+            // FailedRecordingEntry doesn't persist the auto-detect flag; mismatch is
+            // unlikely in practice (requires Qwen failure + language mode switch before retry).
+            let languageCode = Self.qwenLanguageParam(from: entry.localeIdentifier, isAutoDetect: languageIsAutoDetect)
+            let outputLocale: String? = (languageCode == nil) ? entry.localeIdentifier : nil
+            transcript = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let text = try Self.transcribeQwenAudioFile(
+                            audioURL: entry.audioFileURL,
+                            model: qwenModelId,
+                            languageCode: languageCode,
+                            outputLocale: outputLocale
+                        )
+                        continuation.resume(returning: text)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        case .mlxWhisper:
+            let languageCode = Self.mlxWhisperLanguageParam(from: entry.localeIdentifier, isAutoDetect: languageIsAutoDetect)
+            let outputLocale: String? = (languageCode == nil) ? entry.localeIdentifier : nil
+            transcript = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let text = try Self.transcribeMlxWhisperAudioFile(
+                            audioURL: entry.audioFileURL,
+                            languageCode: languageCode,
+                            outputLocale: outputLocale
                         )
                         continuation.resume(returning: text)
                     } catch {
@@ -428,6 +475,92 @@ final class SpeechTranscriber {
         }
     }
 
+    private func stopQwenRecording() async throws -> String {
+        guard let recorder = audioRecorder, let recordingURL = recordedAudioURL else {
+            return ""
+        }
+
+        let durationSec = recorder.currentTime
+        recorder.stop()
+
+        audioRecorder = nil
+        recordedAudioURL = nil
+
+        if durationSec < 0.18 {
+            try? FileManager.default.removeItem(at: recordingURL)
+            return ""
+        }
+
+        let modelId = qwenModel.rawValue
+        let languageCode = Self.qwenLanguageParam(from: localeIdentifier, isAutoDetect: languageIsAutoDetect)
+        let outputLocale: String? = (languageCode == nil) ? localeIdentifier : nil
+
+        do {
+            let transcript = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let text = try Self.transcribeQwenAudioFile(
+                            audioURL: recordingURL,
+                            model: modelId,
+                            languageCode: languageCode,
+                            outputLocale: outputLocale
+                        )
+                        continuation.resume(returning: text)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            try? FileManager.default.removeItem(at: recordingURL)
+            return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            persistFailedRecording(audioURL: recordingURL, durationSec: durationSec)
+            throw error
+        }
+    }
+
+    private func stopMlxWhisperRecording() async throws -> String {
+        guard let recorder = audioRecorder, let recordingURL = recordedAudioURL else {
+            return ""
+        }
+
+        let durationSec = recorder.currentTime
+        recorder.stop()
+
+        audioRecorder = nil
+        recordedAudioURL = nil
+
+        if durationSec < 0.18 {
+            try? FileManager.default.removeItem(at: recordingURL)
+            return ""
+        }
+
+        let languageCode = Self.mlxWhisperLanguageParam(from: localeIdentifier, isAutoDetect: languageIsAutoDetect)
+        let outputLocale: String? = (languageCode == nil) ? localeIdentifier : nil
+
+        do {
+            let transcript = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let text = try Self.transcribeMlxWhisperAudioFile(
+                            audioURL: recordingURL,
+                            languageCode: languageCode,
+                            outputLocale: outputLocale
+                        )
+                        continuation.resume(returning: text)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            try? FileManager.default.removeItem(at: recordingURL)
+            return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            persistFailedRecording(audioURL: recordingURL, durationSec: durationSec)
+            throw error
+        }
+    }
+
     private func persistFailedRecording(audioURL: URL, durationSec: TimeInterval) {
         guard FileManager.default.fileExists(atPath: audioURL.path) else {
             if failedRecordingEntry != nil {
@@ -446,6 +579,7 @@ final class SpeechTranscriber {
             whisperModel: whisperModel,
             whisperComputeType: whisperComputeType,
             openAIModel: openAIModel,
+            qwenModel: qwenModel,
             durationSeconds: durationSec
         )
         if let entry {
@@ -466,6 +600,52 @@ final class SpeechTranscriber {
         return tempDirectory
             .appendingPathComponent("verbatim-flow-\(UUID().uuidString)", isDirectory: false)
             .appendingPathExtension("m4a")
+    }
+
+    /// Runs a subprocess while draining stdout/stderr via readabilityHandler
+    /// to avoid deadlock when child output exceeds the 64 KB pipe buffer.
+    private nonisolated static func runSubprocess(
+        _ process: Process,
+        outputPipe: Pipe,
+        errorPipe: Pipe
+    ) throws -> (stdout: String, stderr: String) {
+        let lock = NSLock()
+        var outputData = Data()
+        var errorData = Data()
+
+        let outputHandle = outputPipe.fileHandleForReading
+        let errorHandle = errorPipe.fileHandleForReading
+
+        outputHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            lock.lock()
+            outputData.append(data)
+            lock.unlock()
+        }
+        errorHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            lock.lock()
+            errorData.append(data)
+            lock.unlock()
+        }
+
+        try process.run()
+        process.waitUntilExit()
+
+        outputHandle.readabilityHandler = nil
+        errorHandle.readabilityHandler = nil
+
+        lock.lock()
+        outputData.append(outputHandle.readDataToEndOfFile())
+        errorData.append(errorHandle.readDataToEndOfFile())
+        lock.unlock()
+
+        let stdout = String(data: outputData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(data: errorData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return (stdout, stderr)
     }
 
     private nonisolated static func transcribeWhisperAudioFile(
@@ -504,31 +684,7 @@ final class SpeechTranscriber {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
-        let terminationSemaphore = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            terminationSemaphore.signal()
-        }
-
-        try process.run()
-        let timeout = resolvedWhisperProcessTimeoutSeconds()
-        var didTerminate = terminationSemaphore.wait(timeout: .now() + timeout) == .success
-        if !didTerminate {
-            RuntimeLogger.log(
-                "[whisper] process timeout after \(Int(timeout))s; terminating pid=\(process.processIdentifier) model=\(model)"
-            )
-            process.terminate()
-            didTerminate = terminationSemaphore.wait(timeout: .now() + 2) == .success
-        }
-        guard didTerminate else {
-            throw AppError.whisperTranscriptionFailed(
-                "Process timed out after \(Int(timeout))s and did not terminate cleanly"
-            )
-        }
-
-        let outputText = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let errorText = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let (outputText, errorText) = try runSubprocess(process, outputPipe: outputPipe, errorPipe: errorPipe)
 
         if process.terminationStatus != 0 {
             let details = errorText.isEmpty ? outputText : errorText
@@ -820,19 +976,164 @@ final class SpeechTranscriber {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    private nonisolated static func transcribeQwenAudioFile(
+        audioURL: URL,
+        model: String,
+        languageCode: String?,
+        outputLocale: String? = nil
+    ) throws -> String {
+        guard let scriptURL = resolveQwenScriptURL() else {
+            throw AppError.qwenScriptNotFound
+        }
+
+        let process = Process()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        if let pythonURL = resolvePythonExecutable(scriptURL: scriptURL) {
+            process.executableURL = pythonURL
+            process.arguments = [
+                scriptURL.path,
+                "--audio",
+                audioURL.path,
+                "--model",
+                model
+            ]
+        } else {
+            throw AppError.pythonRuntimeNotFound
+        }
+
+        if let languageCode, !languageCode.isEmpty {
+            process.arguments?.append(contentsOf: ["--language", languageCode])
+        }
+        if let outputLocale, !outputLocale.isEmpty {
+            process.arguments?.append(contentsOf: ["--output-locale", outputLocale])
+        }
+
+        // Ensure Homebrew tools (ffmpeg) are reachable for audio decoding.
+        var env = ProcessInfo.processInfo.environment
+        let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let homebrewPaths = ["/opt/homebrew/bin", "/usr/local/bin"]
+        let missingPaths = homebrewPaths.filter { !currentPath.contains($0) }
+        if !missingPaths.isEmpty {
+            env["PATH"] = (missingPaths + [currentPath]).joined(separator: ":")
+        }
+        process.environment = env
+
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        let (outputText, errorText) = try runSubprocess(process, outputPipe: outputPipe, errorPipe: errorPipe)
+
+        if process.terminationStatus != 0 {
+            let details = errorText.isEmpty ? outputText : errorText
+            throw AppError.qwenTranscriptionFailed(details)
+        }
+
+        return outputText
+    }
+
+    private nonisolated static func resolveQwenScriptURL() -> URL? {
+        resolveScript(named: "transcribe_qwen.py")
+    }
+
+    private nonisolated static func transcribeMlxWhisperAudioFile(
+        audioURL: URL,
+        languageCode: String?,
+        outputLocale: String? = nil
+    ) throws -> String {
+        guard let scriptURL = resolveMlxWhisperScriptURL() else {
+            throw AppError.mlxWhisperScriptNotFound
+        }
+
+        let process = Process()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        if let pythonURL = resolvePythonExecutable(scriptURL: scriptURL) {
+            process.executableURL = pythonURL
+            process.arguments = [
+                scriptURL.path,
+                "--audio",
+                audioURL.path,
+            ]
+        } else {
+            throw AppError.pythonRuntimeNotFound
+        }
+
+        if let languageCode, !languageCode.isEmpty {
+            process.arguments?.append(contentsOf: ["--language", languageCode])
+        }
+        if let outputLocale, !outputLocale.isEmpty {
+            process.arguments?.append(contentsOf: ["--output-locale", outputLocale])
+        }
+
+        // Ensure Homebrew tools (ffmpeg) are reachable for audio decoding.
+        var env = ProcessInfo.processInfo.environment
+        let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let homebrewPaths = ["/opt/homebrew/bin", "/usr/local/bin"]
+        let missingPaths = homebrewPaths.filter { !currentPath.contains($0) }
+        if !missingPaths.isEmpty {
+            env["PATH"] = (missingPaths + [currentPath]).joined(separator: ":")
+        }
+        process.environment = env
+
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        let (outputText, errorText) = try runSubprocess(process, outputPipe: outputPipe, errorPipe: errorPipe)
+
+        if process.terminationStatus != 0 {
+            let details = errorText.isEmpty ? outputText : errorText
+            throw AppError.mlxWhisperTranscriptionFailed(details)
+        }
+
+        return outputText
+    }
+
+    private nonisolated static func resolveMlxWhisperScriptURL() -> URL? {
+        resolveScript(named: "transcribe_mlx_whisper.py")
+    }
+
     private nonisolated static func resolveWhisperScriptURL() -> URL? {
+        resolveScript(named: "transcribe_once.py")
+    }
+
+    private nonisolated static func resolveScript(named filename: String) -> URL? {
         let fileManager = FileManager.default
         let currentDirectory = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
         let bundleDirectory = Bundle.main.bundleURL.deletingLastPathComponent()
 
-        let candidates = [
-            currentDirectory.appendingPathComponent("python/scripts/transcribe_once.py"),
-            currentDirectory.appendingPathComponent("apps/mac-client/python/scripts/transcribe_once.py"),
-            bundleDirectory.appendingPathComponent("../python/scripts/transcribe_once.py"),
-            bundleDirectory.appendingPathComponent("python/scripts/transcribe_once.py")
-        ].map { $0.standardizedFileURL }
+        var candidates = [URL]()
 
-        for candidate in candidates where fileManager.fileExists(atPath: candidate.path) {
+        // Prefer source-tree paths so that the adjacent .venv is found by
+        // resolvePythonExecutable.  Bundle resource copy is the last resort.
+
+        // executable-relative: Contents/MacOS/../../../../python/scripts → source tree
+        if let execURL = Bundle.main.executableURL {
+            let execDir = execURL.deletingLastPathComponent() // Contents/MacOS
+            candidates.append(
+                execDir.appendingPathComponent("../../../../python/scripts/\(filename)")
+            )
+        }
+
+        candidates.append(contentsOf: [
+            currentDirectory.appendingPathComponent("python/scripts/\(filename)"),
+            currentDirectory.appendingPathComponent("apps/mac-client/python/scripts/\(filename)"),
+            bundleDirectory.appendingPathComponent("../python/scripts/\(filename)"),
+            bundleDirectory.appendingPathComponent("python/scripts/\(filename)")
+        ])
+
+        // Bundle resource copy (no .venv alongside, used as fallback)
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(
+                resourceURL.appendingPathComponent("python/scripts/\(filename)")
+            )
+        }
+
+        let resolved = candidates.map { $0.standardizedFileURL }
+
+        for candidate in resolved where fileManager.fileExists(atPath: candidate.path) {
             return candidate
         }
 
@@ -841,10 +1142,31 @@ final class SpeechTranscriber {
 
     private nonisolated static func resolvePythonExecutable(scriptURL: URL) -> URL? {
         let fileManager = FileManager.default
+
+        var candidates = [URL]()
+
+        // 1. venv adjacent to the script's python root (works in source tree)
         let pythonRoot = scriptURL.deletingLastPathComponent().deletingLastPathComponent()
-        let venvPython = pythonRoot.appendingPathComponent(".venv/bin/python")
-        if fileManager.fileExists(atPath: venvPython.path) {
-            return venvPython
+        candidates.append(pythonRoot.appendingPathComponent(".venv/bin/python"))
+
+        // 2. exec-relative: walk from Contents/MacOS back to source tree
+        if let execURL = Bundle.main.executableURL {
+            let macosDir = execURL.deletingLastPathComponent()
+            candidates.append(
+                macosDir.appendingPathComponent("../../../../python/.venv/bin/python")
+            )
+        }
+
+        // 3. User-configured Python path via environment variable
+        if let envPath = ProcessInfo.processInfo.environment["VERBATIMFLOW_PYTHON_PATH"] {
+            candidates.append(URL(fileURLWithPath: envPath))
+        }
+
+        for candidate in candidates {
+            let resolved = candidate.standardizedFileURL
+            if fileManager.fileExists(atPath: resolved.path) {
+                return resolved
+            }
         }
 
         let systemPython = URL(fileURLWithPath: "/usr/bin/python3")
@@ -868,6 +1190,36 @@ final class SpeechTranscriber {
         return languageCode?.isEmpty == false ? languageCode : nil
     }
 
+    private nonisolated static func qwenLanguageParam(
+        from localeIdentifier: String,
+        isAutoDetect: Bool
+    ) -> String? {
+        if isAutoDetect { return nil }
+        let lowercased = localeIdentifier.lowercased()
+        if lowercased.isEmpty { return nil }
+        // Pass full locale for zh variants so Python can distinguish Hant/Hans.
+        if lowercased.hasPrefix("zh") {
+            return localeIdentifier
+        }
+        // For non-Chinese locales, pass just the language prefix.
+        return Locale(identifier: localeIdentifier).language.languageCode?.identifier
+    }
+
+    private nonisolated static func mlxWhisperLanguageParam(
+        from localeIdentifier: String,
+        isAutoDetect: Bool
+    ) -> String? {
+        if isAutoDetect { return nil }
+        let lowercased = localeIdentifier.lowercased()
+        if lowercased.isEmpty { return nil }
+        // Pass full locale for zh variants so Python can distinguish Hant/Hans.
+        if lowercased.hasPrefix("zh") {
+            return localeIdentifier
+        }
+        // For non-Chinese locales, pass just the language prefix.
+        return Locale(identifier: localeIdentifier).language.languageCode?.identifier
+    }
+
     private nonisolated static func resolvedOpenAILanguageCodeHint(
         localeIdentifier: String,
         environment: [String: String],
@@ -886,8 +1238,6 @@ final class SpeechTranscriber {
             return whisperLanguageCode(from: localeIdentifier)
         case "auto":
             let hinted = whisperLanguageCode(from: localeIdentifier)
-            // In Chinese locale, avoid hard forcing "zh" so mixed zh/en terms
-            // can be recognized more naturally by cloud models.
             if hinted == "zh" {
                 return nil
             }
