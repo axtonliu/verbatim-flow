@@ -20,11 +20,13 @@ final class AppController {
     }
 
     private(set) var localeIdentifier: String
+    private var languageIsAutoDetect: Bool
 
     private let requireOnDeviceRecognition: Bool
     private var recognitionEngine: RecognitionEngine
     private var whisperModel: WhisperModel
     private var openAIModel: OpenAITranscriptionModel
+    private var qwenModel: QwenModel
     private let whisperComputeType: String
     private var transcriber: SpeechTranscriber
     private let injector = TextInjector()
@@ -75,12 +77,14 @@ final class AppController {
     var onPermissionSnapshot: ((PermissionSnapshot) -> Void)?
     var onRetriableAudioAvailabilityChanged: ((Bool) -> Void)?
 
-    init(config: CLIConfig) {
+    init(config: CLIConfig, languageIsAutoDetect: Bool = false) {
         self.localeIdentifier = config.localeIdentifier
+        self.languageIsAutoDetect = languageIsAutoDetect
         self.requireOnDeviceRecognition = config.requireOnDeviceRecognition
         self.recognitionEngine = config.recognitionEngine
         self.whisperModel = config.whisperModel
         self.openAIModel = config.openAIModel
+        self.qwenModel = config.qwenModel
         self.whisperComputeType = config.whisperComputeType
         self.hotkey = config.hotkey
         self.clarifyHotkey = Self.defaultClarifyHotkey
@@ -92,7 +96,9 @@ final class AppController {
             recognitionEngine: config.recognitionEngine,
             whisperModel: config.whisperModel,
             openAIModel: config.openAIModel,
-            whisperComputeType: config.whisperComputeType
+            qwenModel: config.qwenModel,
+            whisperComputeType: config.whisperComputeType,
+            languageIsAutoDetect: languageIsAutoDetect
         )
     }
 
@@ -132,6 +138,10 @@ final class AppController {
         openAIModel
     }
 
+    var currentQwenModel: QwenModel {
+        qwenModel
+    }
+
     var isRunning: Bool {
         primaryHotkeyMonitor != nil
     }
@@ -151,7 +161,7 @@ final class AppController {
 
         emit("verbatim-flow")
         emit(
-            "mode=\(mode.rawValue) engine=\(recognitionEngine.rawValue) whisper-model=\(whisperModel.rawValue) openai-model=\(openAIModel.rawValue) locale=\(localeIdentifier) hotkey=\(hotkey.display)"
+            "mode=\(mode.rawValue) engine=\(recognitionEngine.rawValue) whisper-model=\(whisperModel.rawValue) openai-model=\(openAIModel.rawValue) qwen-model=\(qwenModel.displayName) locale=\(localeIdentifier) hotkey=\(hotkey.display)"
         )
         emit("release hotkey to transcribe and insert")
         emit("[hotkey] primary=\(hotkey.display) default-mode=\(mode.rawValue)")
@@ -290,10 +300,9 @@ final class AppController {
         }
     }
 
-    func setLocaleIdentifier(_ localeIdentifier: String) {
-        guard self.localeIdentifier != localeIdentifier else {
-            return
-        }
+    func setLocaleIdentifier(_ localeIdentifier: String, isAutoDetect: Bool) {
+        let changed = self.localeIdentifier != localeIdentifier || self.languageIsAutoDetect != isAutoDetect
+        guard changed else { return }
 
         guard !isRecording else {
             emit("[warn] stop recording before changing language")
@@ -301,8 +310,9 @@ final class AppController {
         }
 
         self.localeIdentifier = localeIdentifier
+        self.languageIsAutoDetect = isAutoDetect
         rebuildTranscriber()
-        emit("[config] language set to \(localeIdentifier)")
+        emit("[config] language set to \(localeIdentifier)\(isAutoDetect ? " (auto-detect)" : "")")
     }
 
     func setRecognitionEngine(_ engine: RecognitionEngine) {
@@ -348,6 +358,21 @@ final class AppController {
         openAIModel = model
         rebuildTranscriber()
         emit("[config] openai model set to \(model.rawValue)")
+    }
+
+    func setQwenModel(_ model: QwenModel) {
+        guard qwenModel != model else {
+            return
+        }
+
+        guard !isRecording else {
+            emit("[warn] stop recording before changing Qwen model")
+            return
+        }
+
+        qwenModel = model
+        rebuildTranscriber()
+        emit("[config] qwen model set to \(model.displayName)")
     }
 
     func copyTranscriptToClipboard(_ text: String) {
@@ -691,7 +716,9 @@ final class AppController {
             recognitionEngine: recognitionEngine,
             whisperModel: whisperModel,
             openAIModel: openAIModel,
-            whisperComputeType: whisperComputeType
+            qwenModel: qwenModel,
+            whisperComputeType: whisperComputeType,
+            languageIsAutoDetect: languageIsAutoDetect
         )
         notifyRetriableAudioAvailabilityChanged()
     }

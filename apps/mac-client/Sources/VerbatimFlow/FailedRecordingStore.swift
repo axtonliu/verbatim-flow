@@ -5,9 +5,11 @@ enum FailedRecordingStore {
         let audioFilePath: String
         let recognitionEngineRawValue: String
         let localeIdentifier: String
+        let languageIsAutoDetect: Bool?
         let whisperModelRawValue: String
         let whisperComputeType: String
         let openAIModelRawValue: String
+        let qwenModelRawValue: String?
         let createdAt: Date
         let durationSeconds: TimeInterval
 
@@ -25,6 +27,11 @@ enum FailedRecordingStore {
 
         var openAIModel: OpenAITranscriptionModel? {
             OpenAITranscriptionModel(rawValue: openAIModelRawValue)
+        }
+
+        var qwenModel: QwenModel? {
+            guard let raw = qwenModelRawValue else { return nil }
+            return QwenModel(rawValue: raw)
         }
     }
 
@@ -77,9 +84,11 @@ enum FailedRecordingStore {
         sourceAudioURL: URL,
         recognitionEngine: RecognitionEngine,
         localeIdentifier: String,
+        languageIsAutoDetect: Bool,
         whisperModel: WhisperModel,
         whisperComputeType: String,
         openAIModel: OpenAITranscriptionModel,
+        qwenModel: QwenModel,
         durationSeconds: TimeInterval,
         baseDirectory: URL? = nil
     ) -> Entry? {
@@ -101,9 +110,11 @@ enum FailedRecordingStore {
                 audioFilePath: pathSet.audioFileURL.path,
                 recognitionEngineRawValue: recognitionEngine.rawValue,
                 localeIdentifier: localeIdentifier,
+                languageIsAutoDetect: languageIsAutoDetect,
                 whisperModelRawValue: whisperModel.rawValue,
                 whisperComputeType: whisperComputeType,
                 openAIModelRawValue: openAIModel.rawValue,
+                qwenModelRawValue: qwenModel.rawValue,
                 createdAt: Date(),
                 durationSeconds: durationSeconds
             )

@@ -11,10 +11,11 @@ swift run verbatim-flow --mode raw --hotkey ctrl+shift+space
 The app runs as a menu bar item (`VF`). Most controls are grouped under a unified `Settings` submenu:
 - Pause/resume hotkey listener
 - Switch `Raw`, `Format-only`, and `Clarify` modes
-- Switch recognition engine (`Apple Speech`, `Whisper`, `OpenAI Cloud`)
+- Switch recognition engine (`Apple Speech`, `Whisper`, `OpenAI Cloud`, `Qwen3 ASR`, `MLX Whisper`)
 - Switch Whisper model (`tiny`, `base`, `small`, `medium`, `large-v3`)
+- Switch Qwen3 model (`0.6B-8bit`, `1.7B-8bit`)
 - Switch OpenAI cloud model (`gpt-4o-mini-transcribe`, `whisper-1`)
-- Switch language (`System Default`, `zh-Hans`, `en-US`)
+- Switch language (`System Default`, `zh-Hans`, `zh-Hant`, `en-US`)
 - Trigger microphone/speech permission request
 - See permission status summary (`Mic/Speech/Accessibility`)
 - Change hotkey presets in-app
@@ -54,7 +55,7 @@ open "apps/mac-client/dist/VerbatimFlow.app"
 
 ## Flags
 - `--mode raw|format-only|clarify`
-- `--engine apple|whisper|openai`
+- `--engine apple|whisper|openai|qwen|mlx-whisper`
 - `--whisper-model tiny|base|small|medium|large-v3`
 - `--whisper-compute-type int8|int8_float16|float16|float32`
 - `--openai-model gpt-4o-mini-transcribe|whisper-1`

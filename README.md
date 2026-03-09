@@ -4,7 +4,7 @@
 [![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange.svg)](#status)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-blue.svg)](#)
 
-**[中文文档](README_CN.md)**
+**[简体中文](README_CN.md)** | **[繁體中文](README_zh-TW.md)**
 
 A fast, zero-rewrite dictation app for macOS — your words, exactly as spoken.
 
@@ -33,7 +33,7 @@ VerbatimFlow is a menu bar dictation utility that transcribes speech and injects
 
 - **Push-to-talk** — hold a hotkey to record, release to transcribe and inject
 - **Two modes** — `Standard` (verbatim output with rule-based formatting: punctuation, spacing, capitalization) and `Clarify` (LLM-powered concise rewrite, opt-in)
-- **Multiple engines** — Apple Speech, local Whisper, OpenAI Cloud
+- **Multiple engines** — Apple Speech, local Whisper, OpenAI Cloud, Qwen3 ASR, MLX Whisper (local, Apple Silicon)
 - **Instant injection** — text appears in your active app via Accessibility API
 - **Undo support** — one-click rollback of the last inserted transcript
 - **Open source** — every line of code is readable; your audio, your control
@@ -50,10 +50,10 @@ VerbatimFlow is a menu bar dictation utility that transcribes speech and injects
 
 - **Menu bar app** — lives in the macOS menu bar as a V-mark icon with real-time state badges (● recording, ○ processing, — paused)
 - **Dual hotkey** — primary hotkey uses current mode; secondary hotkey (`Cmd+Shift+Space`) forces Clarify for one segment
-- **Engine switching** — Apple Speech / Whisper (tiny–large-v3) / OpenAI Cloud (gpt-4o-mini-transcribe, whisper-1)
+- **Engine switching** — Apple Speech / Whisper (tiny–large-v3) / OpenAI Cloud (gpt-4o-mini-transcribe, whisper-1) / Qwen3 ASR (0.6B / 1.7B, local on Apple Silicon via mlx-audio) / MLX Whisper (Large V3, local on Apple Silicon via mlx-whisper)
 - **Clarify via OpenAI or OpenRouter** — configurable provider, model, and API keys
 - **Terminology dictionary** — custom term corrections and source→target substitution rules
-- **Language selection** — System Default / zh-Hans / en-US
+- **Language selection** — System Default / zh-Hans / zh-Hant / en-US
 - **Transcript history** — recent transcripts viewable in menu, with Copy + Undo Last Insert
 - **Permission diagnostics** — built-in permission snapshot and one-click system settings access
 - **Persistent preferences** — mode, engine, model, hotkey, and language survive restarts
@@ -66,6 +66,7 @@ VerbatimFlow is a menu bar dictation utility that transcribes speech and injects
 - macOS 14+ (Sonoma or later recommended)
 - Xcode 16+ (for building from source)
 - Microphone and Accessibility permissions
+- Apple Silicon (M1/M2/M3/M4) or Intel Mac (universal binary supported)
 
 ### Build the App
 
@@ -175,6 +176,9 @@ verbatim-flow/
 │   │   ├── TerminologyDictionary.swift
 │   │   └── ...
 │   ├── Tests/VerbatimFlowTests/ # Unit tests
+│   ├── python/                  # Python ASR scripts
+│   │   ├── scripts/             # CLI entry points (transcribe_qwen.py, transcribe_mlx_whisper.py)
+│   │   └── verbatim_flow/       # Qwen3 ASR & MLX Whisper transcriber modules
 │   ├── Package.swift
 │   └── dist/                    # Build output (.app, .dmg)
 ├── packages/                    # Shared package stubs
@@ -217,11 +221,15 @@ verbatim-flow/
 
 ## Roadmap
 
+- [x] Whisper engine integration in native Swift path
+- [x] Improved mixed-language (CJK + English) handling
+- [x] Qwen3 ASR local engine (0.6B / 1.7B on Apple Silicon)
+- [x] MLX Whisper local engine (Large V3 on Apple Silicon)
+- [x] Traditional Chinese (zh-Hant) language option
+- [x] Universal binary (Intel + Apple Silicon)
 - [ ] Streaming transcription (word-by-word injection as you speak)
-- [ ] Whisper engine integration in native Swift path
 - [ ] Configurable text guard sensitivity threshold
 - [ ] Per-app mode profiles
-- [ ] Improved mixed-language (CJK + English) handling
 - [ ] Clarify structural formatting (e.g., detect action items and render as bullet lists while preserving meaning)
 
 ## Contributing
@@ -239,6 +247,10 @@ Contributions welcome (low-maintenance project):
 - [Apple Speech Framework](https://developer.apple.com/documentation/speech) — on-device speech recognition
 - [OpenAI Whisper](https://openai.com/research/whisper) — open-source ASR model
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2-based Whisper inference (Python MVP)
+- [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) — multilingual ASR model by Alibaba Qwen team
+- [mlx-audio](https://github.com/Blaizzy/mlx-audio) — Apple Silicon-optimized audio ML framework
+- [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) — Whisper inference on Apple Silicon via MLX
+- [OpenCC](https://github.com/BYVoid/OpenCC) — Simplified/Traditional Chinese conversion
 
 ## License
 
