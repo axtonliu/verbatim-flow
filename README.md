@@ -115,6 +115,16 @@ Cloud transcription and Clarify rewrite are configured via `~/Library/Applicatio
 ```bash
 # OpenAI transcription
 OPENAI_API_KEY=sk-...
+VERBATIMFLOW_OPENAI_MODEL=gpt-4o-mini-transcribe
+
+# Auto route (fast first pass, then high-accuracy fallback for risky mixed-language terms)
+VERBATIMFLOW_OPENAI_AUTO_ROUTE=1
+VERBATIMFLOW_OPENAI_AUTO_SECONDARY_MODEL=whisper-1
+# Optional tuning:
+# VERBATIMFLOW_OPENAI_AUTO_ROUTE_ZH_ONLY=1
+# VERBATIMFLOW_OPENAI_LANGUAGE_HINT_MODE=auto
+# VERBATIMFLOW_OPENAI_AUTO_ROUTE_MIN_RISK_SCORE=2
+# VERBATIMFLOW_OPENAI_AUTO_ROUTE_MIN_PRIMARY_CHARS=8
 
 # Clarify provider: openai or openrouter
 VERBATIMFLOW_CLARIFY_PROVIDER=openai

@@ -239,15 +239,39 @@ final class TextInjector {
             return false
         }
 
-        // Messages and some WeChat builds can report AX selected-text success
-        // without mutating the composer. Prefer paste fallback for deterministic
-        // insertion in those apps.
-        return bundleIdentifier == "com.apple.MobileSMS" || isWeChatLike(bundleIdentifier)
+        // Some apps can report AX selected-text success without visible mutation.
+        // Prefer paste fallback for deterministic insertion there.
+        return bundleIdentifier == "com.apple.MobileSMS"
+            || isWeChatLike(bundleIdentifier)
+            || isBrowserLike(bundleIdentifier)
     }
 
     private func isWeChatLike(_ bundleIdentifier: String) -> Bool {
         switch bundleIdentifier {
         case "com.tencent.xinWeChat", "com.tencent.WeChat":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isBrowserLike(_ bundleIdentifier: String) -> Bool {
+        if bundleIdentifier.hasPrefix("com.google.Chrome.app.") {
+            return true
+        }
+
+        switch bundleIdentifier {
+        case "com.apple.Safari",
+             "com.google.Chrome",
+             "com.google.Chrome.canary",
+             "com.brave.Browser",
+             "com.microsoft.edgemac",
+             "org.mozilla.firefox",
+             "com.operasoftware.Opera",
+             "com.vivaldi.Vivaldi",
+             "company.thebrowser.Browser", // Arc
+             "company.thebrowser.dia", // Dia
+             "com.kagi.kagimacOS": // Orion
             return true
         default:
             return false

@@ -31,7 +31,7 @@ final class AppController {
     private var transcriber: SpeechTranscriber
     private let injector = TextInjector()
     private var hotkey: Hotkey
-    private let clarifyHotkey: Hotkey
+    private var clarifyHotkey: Hotkey
     private let dryRun: Bool
 
     private var mode: OutputMode
@@ -39,6 +39,8 @@ final class AppController {
     private var clarifyHotkeyMonitor: HotkeyMonitor?
     private var pendingSegmentModeOverride: OutputMode?
     private var isRecording = false
+    private var activeProcessingToken: UUID?
+    private var processingWatchdogWorkItem: DispatchWorkItem?
     private var pendingInsertTarget: PendingInsertTarget?
     private var lastSuccessfulInsertTarget: PendingInsertTarget?
     private let enableVoiceCommandPrefixes = false
@@ -54,6 +56,20 @@ final class AppController {
             modifiers: [.command, .shift],
             display: "cmd+shift+space"
         )
+    static var defaultClarifyHotkeyValue: Hotkey {
+        defaultClarifyHotkey
+    }
+    private static let processingWatchdogTimeoutSeconds: TimeInterval = {
+        let env = ProcessInfo.processInfo.environment
+        let fileValues = OpenAISettings.loadValues()
+        let raw = (env["VERBATIMFLOW_PROCESSING_WATCHDOG_SECONDS"]
+            ?? fileValues["VERBATIMFLOW_PROCESSING_WATCHDOG_SECONDS"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw, let seconds = Double(raw), seconds >= 15, seconds <= 600 else {
+            return 120
+        }
+        return seconds
+    }()
 
     var onStateChanged: ((RuntimeState) -> Void)?
     var onLog: ((String) -> Void)?
@@ -96,6 +112,10 @@ final class AppController {
 
     var currentClarifyHotkeyDisplay: String {
         clarifyHotkey.display
+    }
+
+    var currentClarifyHotkey: Hotkey {
+        clarifyHotkey
     }
 
     var currentHotkey: Hotkey {
@@ -260,6 +280,26 @@ final class AppController {
         }
     }
 
+    func setClarifyHotkey(_ hotkey: Hotkey) {
+        let sameHotkey = self.clarifyHotkey.keyCode == hotkey.keyCode &&
+            self.clarifyHotkey.modifiers == hotkey.modifiers
+        guard !sameHotkey else {
+            return
+        }
+
+        let wasRunning = isRunning
+        if wasRunning {
+            stopInternal(emitLog: false)
+        }
+
+        self.clarifyHotkey = hotkey
+        emit("[config] clarify hotkey set to \(hotkey.display)")
+
+        if wasRunning {
+            start()
+        }
+    }
+
     func setLocaleIdentifier(_ localeIdentifier: String, isAutoDetect: Bool) {
         let changed = self.localeIdentifier != localeIdentifier || self.languageIsAutoDetect != isAutoDetect
         guard changed else { return }
@@ -386,20 +426,23 @@ final class AppController {
             return
         }
 
-        runtimeState = .processing
+        let processingToken = beginProcessing(context: "retry-audio")
         let retryTarget = capturePendingInsertTarget() ?? lastSuccessfulInsertTarget
         emit("[retry-audio] retrying last failed recording...")
 
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                self.runtimeState = .ready
-                self.notifyRetriableAudioAvailabilityChanged()
+                self.endProcessingIfCurrent(processingToken)
             }
 
             do {
                 let raw = try await self.transcriber.retryLastFailedRecording()
-                await self.commitTranscript(raw, preferredTarget: retryTarget)
+                guard self.isProcessingTokenCurrent(processingToken) else {
+                    self.emit("[retry-audio] stale result dropped after watchdog reset")
+                    return
+                }
+                await self.commitTranscript(raw, preferredTarget: retryTarget, processingToken: processingToken)
             } catch {
                 self.emit("[error] Retry last audio failed: \(error)")
             }
@@ -410,6 +453,9 @@ final class AppController {
         primaryHotkeyMonitor = nil
         clarifyHotkeyMonitor = nil
         pendingSegmentModeOverride = nil
+        activeProcessingToken = nil
+        processingWatchdogWorkItem?.cancel()
+        processingWatchdogWorkItem = nil
 
         if isRecording {
             isRecording = false
@@ -494,7 +540,10 @@ final class AppController {
         emit("[hotkey] released")
 
         isRecording = false
-        runtimeState = .processing
+        let processingToken = beginProcessing(context: "hotkey-release")
+        defer {
+            endProcessingIfCurrent(processingToken)
+        }
 
         let raw: String
         do {
@@ -507,14 +556,18 @@ final class AppController {
             pendingInsertTarget = nil
             pendingSegmentModeOverride = nil
             emit("[error] Failed to transcribe audio: \(error)")
-            runtimeState = .ready
             return
         }
-        await commitTranscript(raw, preferredTarget: pendingInsertTarget)
+        guard isProcessingTokenCurrent(processingToken) else {
+            emit("[stale] transcription result dropped because processing watchdog already reset state")
+            pendingInsertTarget = nil
+            pendingSegmentModeOverride = nil
+            return
+        }
+
+        await commitTranscript(raw, preferredTarget: pendingInsertTarget, processingToken: processingToken)
         pendingInsertTarget = nil
         pendingSegmentModeOverride = nil
-        runtimeState = .ready
-        notifyRetriableAudioAvailabilityChanged()
     }
 
     private func emit(_ message: String) {
@@ -526,7 +579,16 @@ final class AppController {
         onRetriableAudioAvailabilityChanged?(hasRetriableAudio)
     }
 
-    private func commitTranscript(_ raw: String, preferredTarget: PendingInsertTarget?) async {
+    private func commitTranscript(
+        _ raw: String,
+        preferredTarget: PendingInsertTarget?,
+        processingToken: UUID? = nil
+    ) async {
+        guard isProcessingTokenCurrent(processingToken) else {
+            emit("[stale] transcript dropped before normalization")
+            return
+        }
+
         let defaultSegmentMode = pendingSegmentModeOverride ?? mode
         if let override = pendingSegmentModeOverride, override != mode {
             emit("[segment-mode] current segment uses \(override.rawValue) via secondary hotkey")
@@ -588,10 +650,12 @@ final class AppController {
             do {
                 let textToRewrite = finalText
                 let localeToRewrite = localeIdentifier
+                let terminologyHints = DictationVocabulary.fuzzyCorrectionTerms(customHints: terminologyRules.hints)
                 let rewritten = try await Task.detached(priority: .userInitiated) {
                     try ClarifyRewriter.rewrite(
                         text: textToRewrite,
-                        localeIdentifier: localeToRewrite
+                        localeIdentifier: localeToRewrite,
+                        terminologyHints: terminologyHints
                     )
                 }.value
                 finalText = rewritten.text
@@ -599,6 +663,11 @@ final class AppController {
             } catch {
                 emit("[clarify] llm rewrite unavailable, fallback to rules: \(error)")
             }
+        }
+
+        guard isProcessingTokenCurrent(processingToken) else {
+            emit("[stale] transcript dropped after post-processing")
+            return
         }
 
         onTranscriptCommitted?(finalText)
@@ -609,6 +678,11 @@ final class AppController {
 
         if dryRun {
             emit("[dry-run] chars=\(finalText.count) preview=\"\(Self.logPreview(finalText))\"")
+            return
+        }
+
+        guard isProcessingTokenCurrent(processingToken) else {
+            emit("[stale] transcript dropped before insertion")
             return
         }
 
@@ -866,5 +940,56 @@ final class AppController {
             return singleLine
         }
         return String(singleLine.prefix(limit)) + "…"
+    }
+
+    private func beginProcessing(context: String) -> UUID {
+        let token = UUID()
+        activeProcessingToken = token
+        runtimeState = .processing
+        scheduleProcessingWatchdog(for: token, context: context)
+        return token
+    }
+
+    private func scheduleProcessingWatchdog(for token: UUID, context: String) {
+        processingWatchdogWorkItem?.cancel()
+
+        let timeout = Self.processingWatchdogTimeoutSeconds
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.activeProcessingToken == token, self.runtimeState == .processing else {
+                return
+            }
+
+            self.emit(
+                "[watchdog] processing exceeded \(Int(timeout))s (\(context)); reset to ready and drop stale result"
+            )
+            self.transcriber.persistPendingTranscriptionForRetryIfNeeded(reason: "processing-watchdog")
+            self.activeProcessingToken = nil
+            self.pendingInsertTarget = nil
+            self.pendingSegmentModeOverride = nil
+            self.isRecording = false
+            self.runtimeState = .ready
+            self.notifyRetriableAudioAvailabilityChanged()
+        }
+        processingWatchdogWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: workItem)
+    }
+
+    private func isProcessingTokenCurrent(_ token: UUID?) -> Bool {
+        guard let token else {
+            return true
+        }
+        return activeProcessingToken == token
+    }
+
+    private func endProcessingIfCurrent(_ token: UUID?) {
+        guard let token, activeProcessingToken == token else {
+            return
+        }
+        activeProcessingToken = nil
+        processingWatchdogWorkItem?.cancel()
+        processingWatchdogWorkItem = nil
+        runtimeState = .ready
+        notifyRetriableAudioAvailabilityChanged()
     }
 }
