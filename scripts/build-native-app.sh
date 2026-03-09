@@ -9,6 +9,10 @@ TEMP_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/verbatim-flow-build.XXXXXX")"
 SIGNING_APP_BUNDLE="$TEMP_BUILD_DIR/${APP_NAME}.app"
 EXECUTABLE_NAME="$APP_NAME"
 ICON_FILE="$NATIVE_DIR/Resources/AppIcon.icns"
+PYTHON_SCRIPTS_DIR="$NATIVE_DIR/python/scripts"
+PYTHON_PACKAGE_DIR="$NATIVE_DIR/python/verbatim_flow"
+APP_PYTHON_SCRIPTS_DIR="$APP_BUNDLE/Contents/Resources/python/scripts"
+APP_PYTHON_PACKAGE_DIR="$APP_BUNDLE/Contents/Resources/python/verbatim_flow"
 BUNDLE_ID="${VERBATIMFLOW_BUNDLE_ID:-com.verbatimflow.app}"
 APP_VERSION="0.1.1"
 APP_BUILD="2"
@@ -38,12 +42,26 @@ else
 fi
 chmod +x "$SIGNING_APP_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME"
 
-"$ROOT_DIR/scripts/generate-app-icon.sh"
+if [[ "${VERBATIMFLOW_REGENERATE_ICON:-0}" == "1" || ! -f "$ICON_FILE" ]]; then
+  "$ROOT_DIR/scripts/generate-app-icon.sh"
+fi
 if [[ -f "$ICON_FILE" ]]; then
   cp -X "$ICON_FILE" "$SIGNING_APP_BUNDLE/Contents/Resources/AppIcon.icns"
   xattr -c "$SIGNING_APP_BUNDLE/Contents/Resources/AppIcon.icns" 2>/dev/null || true
 fi
 xattr -c "$SIGNING_APP_BUNDLE/Contents/MacOS/$EXECUTABLE_NAME" 2>/dev/null || true
+
+if [[ -d "$PYTHON_SCRIPTS_DIR" ]]; then
+  mkdir -p "$SIGNING_APP_BUNDLE/Contents/Resources/python"
+  ditto "$PYTHON_SCRIPTS_DIR" "$SIGNING_APP_BUNDLE/Contents/Resources/python/scripts"
+else
+  echo "[error] python scripts directory not found: $PYTHON_SCRIPTS_DIR" >&2
+  exit 1
+fi
+
+if [[ -d "$PYTHON_PACKAGE_DIR" ]]; then
+  ditto "$PYTHON_PACKAGE_DIR" "$SIGNING_APP_BUNDLE/Contents/Resources/python/verbatim_flow"
+fi
 
 cat > "$SIGNING_APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

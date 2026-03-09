@@ -11,6 +11,7 @@ final class AppPreferences {
         static let recognitionEngine = "verbatimflow.recognitionEngine"
         static let whisperModel = "verbatimflow.whisperModel"
         static let openAIModel = "verbatimflow.openAIModel"
+        static let qwenModel = "verbatimflow.qwenModel"
     }
 
     private let defaults: UserDefaults
@@ -91,5 +92,16 @@ final class AppPreferences {
 
     func saveOpenAIModel(_ model: OpenAITranscriptionModel) {
         defaults.set(model.rawValue, forKey: Key.openAIModel)
+    }
+
+    func loadQwenModel() -> QwenModel? {
+        guard let rawValue = defaults.string(forKey: Key.qwenModel) else {
+            return nil
+        }
+        return QwenModel(rawValue: rawValue)
+    }
+
+    func saveQwenModel(_ model: QwenModel) {
+        defaults.set(model.rawValue, forKey: Key.qwenModel)
     }
 }
