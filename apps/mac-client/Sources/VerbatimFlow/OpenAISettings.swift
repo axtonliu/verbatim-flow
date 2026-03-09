@@ -15,6 +15,21 @@ enum OpenAISettings {
 # You can keep default model for speed, or switch to a larger one.
 OPENAI_API_KEY=
 VERBATIMFLOW_OPENAI_MODEL=gpt-4o-mini-transcribe
+# Auto route for mixed-language/terminology recovery:
+# 1=enabled, 0=disabled
+VERBATIMFLOW_OPENAI_AUTO_ROUTE=1
+# Secondary model used only when risk is high.
+VERBATIMFLOW_OPENAI_AUTO_SECONDARY_MODEL=whisper-1
+# Restrict auto reroute to Chinese/mixed Chinese scenarios.
+VERBATIMFLOW_OPENAI_AUTO_ROUTE_ZH_ONLY=1
+# Language hint strategy for OpenAI transcription:
+# auto  -> do not force zh hint in Chinese locale (better mixed zh/en terms)
+# force -> always pass locale-based language hint
+# off   -> never pass language hint
+VERBATIMFLOW_OPENAI_LANGUAGE_HINT_MODE=auto
+# Optional tuning:
+# VERBATIMFLOW_OPENAI_AUTO_ROUTE_MIN_RISK_SCORE=2
+# VERBATIMFLOW_OPENAI_AUTO_ROUTE_MIN_PRIMARY_CHARS=8
 # Clarify rewrite mode:
 # provider=openai (default) or provider=openrouter
 VERBATIMFLOW_CLARIFY_PROVIDER=openai
@@ -38,6 +53,11 @@ VERBATIMFLOW_OPENROUTER_APP_NAME=VerbatimFlow
 # For localhost debugging only, set VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL=1.
 VERBATIMFLOW_OPENAI_BASE_URL=https://api.openai.com/v1
 # VERBATIMFLOW_ALLOW_INSECURE_OPENAI_BASE_URL=0
+# Optional safety timeouts (seconds, range 15..600)
+# VERBATIMFLOW_OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS=45
+# VERBATIMFLOW_OPENAI_SECONDARY_TRANSCRIPTION_TIMEOUT_SECONDS=20
+# VERBATIMFLOW_WHISPER_PROCESS_TIMEOUT_SECONDS=120
+# VERBATIMFLOW_PROCESSING_WATCHDOG_SECONDS=120
 """
 
     static func ensureConfigFileExists() {

@@ -24,6 +24,20 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertTrue(loaded?.modifiers.contains(.option) == true)
     }
 
+    func testSaveAndLoadClarifyHotkey() throws {
+        let defaults = makeIsolatedDefaults()
+        let preferences = AppPreferences(defaults: defaults)
+        let expected = try HotkeyParser.parse(combo: "ctrl+shift+space")
+
+        preferences.saveClarifyHotkey(expected)
+        let loaded = preferences.loadClarifyHotkey()
+
+        XCTAssertEqual(loaded?.keyCode, expected.keyCode)
+        XCTAssertEqual(loaded?.display.lowercased(), "ctrl+shift+space")
+        XCTAssertTrue(loaded?.modifiers.contains(.control) == true)
+        XCTAssertTrue(loaded?.modifiers.contains(.shift) == true)
+    }
+
     func testSaveAndLoadLanguageSelection() {
         let defaults = makeIsolatedDefaults()
         let preferences = AppPreferences(defaults: defaults)
