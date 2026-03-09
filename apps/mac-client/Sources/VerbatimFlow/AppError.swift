@@ -11,6 +11,8 @@ enum AppError: Error, CustomStringConvertible {
     case openAITranscriptionFailed(String)
     case qwenScriptNotFound
     case qwenTranscriptionFailed(String)
+    case mlxWhisperScriptNotFound
+    case mlxWhisperTranscriptionFailed(String)
     case openAIClarifyFailed(String)
     case retryAudioUnavailable
     case retryAudioUnsupportedEngine(String)
@@ -49,6 +51,13 @@ enum AppError: Error, CustomStringConvertible {
                 return "Qwen ASR transcription failed"
             }
             return "Qwen ASR transcription failed: \(details)"
+        case .mlxWhisperScriptNotFound:
+            return "MLX Whisper script not found. Expected apps/mac-client/python/scripts/transcribe_mlx_whisper.py or Contents/Resources/python/scripts/transcribe_mlx_whisper.py."
+        case .mlxWhisperTranscriptionFailed(let details):
+            if details.isEmpty {
+                return "MLX Whisper transcription failed"
+            }
+            return "MLX Whisper transcription failed: \(details)"
         case .openAIClarifyFailed(let details):
             if details.isEmpty {
                 return "OpenAI clarify rewrite failed"

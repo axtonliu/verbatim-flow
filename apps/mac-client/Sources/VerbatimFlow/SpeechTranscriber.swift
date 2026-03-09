@@ -26,6 +26,8 @@ final class SpeechTranscriber {
     private var audioRecorder: AVAudioRecorder?
     private var recordedAudioURL: URL?
     private var failedRecordingEntry: FailedRecordingStore.Entry?
+    private var pendingTranscriptionAudioURL: URL?
+    private var pendingTranscriptionDurationSeconds: TimeInterval?
 
     init(
         localeIdentifier: String,
@@ -68,7 +70,7 @@ final class SpeechTranscriber {
         switch recognitionEngine {
         case .apple:
             try startAppleSpeechRecording()
-        case .whisper, .openai, .qwen:
+        case .whisper, .openai, .qwen, .mlxWhisper:
             try startFileRecording()
         }
     }
@@ -83,7 +85,25 @@ final class SpeechTranscriber {
             return try await stopOpenAIRecording()
         case .qwen:
             return try await stopQwenRecording()
+        case .mlxWhisper:
+            return try await stopMlxWhisperRecording()
         }
+    }
+
+    func persistPendingTranscriptionForRetryIfNeeded(reason: String) {
+        guard let audioURL = pendingTranscriptionAudioURL,
+              let durationSeconds = pendingTranscriptionDurationSeconds else {
+            return
+        }
+
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            clearPendingTranscriptionTracking()
+            RuntimeLogger.log("[retry-audio] pending transcription source missing; skip persist reason=\(reason)")
+            return
+        }
+
+        RuntimeLogger.log("[retry-audio] persisting in-flight recording reason=\(reason)")
+        persistFailedRecording(audioURL: audioURL, durationSec: durationSeconds)
     }
 
     func retryLastFailedRecording() async throws -> String {
@@ -123,13 +143,22 @@ final class SpeechTranscriber {
         case .openai:
             let model = entry.openAIModel?.rawValue
             let languageCode = Self.whisperLanguageCode(from: entry.localeIdentifier)
+            let timeout = Self.resolvedOpenAITranscriptionTimeoutSeconds(isSecondary: false)
+            let terminologyRules = TerminologyDictionary.loadRules()
+            let vocabularyHints = DictationVocabulary.transcriptionPromptTerms(customHints: terminologyRules.hints)
+            let prompt = Self.buildOpenAITranscriptionPrompt(
+                localeIdentifier: entry.localeIdentifier,
+                terminologyHints: vocabularyHints
+            )
             transcript = try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     do {
                         let text = try Self.transcribeOpenAIAudioFile(
                             audioURL: entry.audioFileURL,
                             languageCode: languageCode,
-                            modelOverride: model
+                            modelOverride: model,
+                            prompt: prompt,
+                            timeout: timeout
                         )
                         continuation.resume(returning: text)
                     } catch {
@@ -150,6 +179,23 @@ final class SpeechTranscriber {
                         let text = try Self.transcribeQwenAudioFile(
                             audioURL: entry.audioFileURL,
                             model: qwenModelId,
+                            languageCode: languageCode,
+                            outputLocale: outputLocale
+                        )
+                        continuation.resume(returning: text)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        case .mlxWhisper:
+            let languageCode = Self.mlxWhisperLanguageParam(from: entry.localeIdentifier, isAutoDetect: languageIsAutoDetect)
+            let outputLocale: String? = (languageCode == nil) ? entry.localeIdentifier : nil
+            transcript = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let text = try Self.transcribeMlxWhisperAudioFile(
+                            audioURL: entry.audioFileURL,
                             languageCode: languageCode,
                             outputLocale: outputLocale
                         )
@@ -279,6 +325,8 @@ final class SpeechTranscriber {
             return ""
         }
 
+        trackPendingTranscription(audioURL: recordingURL, durationSec: durationSec)
+
         let model = whisperModel.rawValue
         let computeType = whisperComputeType
         let languageCode = Self.whisperLanguageCode(from: localeIdentifier)
@@ -300,6 +348,7 @@ final class SpeechTranscriber {
                 }
             }
             try? FileManager.default.removeItem(at: recordingURL)
+            clearPendingTranscriptionTracking()
             return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             persistFailedRecording(audioURL: recordingURL, durationSec: durationSec)
@@ -323,25 +372,103 @@ final class SpeechTranscriber {
             return ""
         }
 
-        let languageCode = Self.whisperLanguageCode(from: localeIdentifier)
+        trackPendingTranscription(audioURL: recordingURL, durationSec: durationSec)
+
         let selectedModel = openAIModel.rawValue
+        let env = ProcessInfo.processInfo.environment
+        let fileValues = OpenAISettings.loadValues()
+        let languageCode = Self.resolvedOpenAILanguageCodeHint(
+            localeIdentifier: localeIdentifier,
+            environment: env,
+            fileValues: fileValues
+        )
+        let terminologyRules = TerminologyDictionary.loadRules()
+        let vocabularyHints = DictationVocabulary.transcriptionPromptTerms(customHints: terminologyRules.hints)
+        let transcriptionPrompt = Self.buildOpenAITranscriptionPrompt(
+            localeIdentifier: localeIdentifier,
+            terminologyHints: vocabularyHints
+        )
+        let primaryTimeout = Self.resolvedOpenAITranscriptionTimeoutSeconds(isSecondary: false)
+
         do {
-            let transcript = try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
+            let primaryStartedAt = Date()
+            RuntimeLogger.log(
+                "[openai] phase=primary start model=\(selectedModel) timeout=\(Int(primaryTimeout))s"
+            )
+            let primaryTranscript = try await Self.transcribeOpenAIAudioFileAsync(
+                audioURL: recordingURL,
+                languageCode: languageCode,
+                modelOverride: selectedModel,
+                prompt: transcriptionPrompt,
+                timeout: primaryTimeout
+            )
+            RuntimeLogger.log(
+                "[openai] phase=primary done model=\(selectedModel) elapsedMs=\(Int(Date().timeIntervalSince(primaryStartedAt) * 1000))"
+            )
+
+            let autoConfig = OpenAIAutoRouter.resolveConfig(
+                environment: env,
+                fileValues: fileValues
+            )
+
+            var finalTranscript = primaryTranscript
+            if autoConfig.enabled {
+                let analysis = OpenAIAutoRouter.analyzePrimaryTranscript(
+                    primaryTranscript,
+                    localeIdentifier: localeIdentifier,
+                    vocabularyHints: vocabularyHints,
+                    config: autoConfig
+                )
+
+                if analysis.shouldRetry,
+                   autoConfig.secondaryModel.caseInsensitiveCompare(selectedModel) != .orderedSame {
+                    let secondaryTimeout = Self.resolvedOpenAITranscriptionTimeoutSeconds(isSecondary: true)
+                    RuntimeLogger.log(
+                        "[openai-auto] reroute triggered primary=\(selectedModel) secondary=\(autoConfig.secondaryModel) risk=\(analysis.riskScore) timeout=\(Int(secondaryTimeout))s reasons=\(analysis.reasons.joined(separator: "|"))"
+                    )
+
                     do {
-                        let text = try Self.transcribeOpenAIAudioFile(
+                        let secondaryStartedAt = Date()
+                        RuntimeLogger.log(
+                            "[openai] phase=secondary start model=\(autoConfig.secondaryModel) timeout=\(Int(secondaryTimeout))s"
+                        )
+                        let secondaryTranscript = try await Self.transcribeOpenAIAudioFileAsync(
                             audioURL: recordingURL,
                             languageCode: languageCode,
-                            modelOverride: selectedModel
+                            modelOverride: autoConfig.secondaryModel,
+                            prompt: transcriptionPrompt,
+                            timeout: secondaryTimeout
                         )
-                        continuation.resume(returning: text)
+                        RuntimeLogger.log(
+                            "[openai] phase=secondary done model=\(autoConfig.secondaryModel) elapsedMs=\(Int(Date().timeIntervalSince(secondaryStartedAt) * 1000))"
+                        )
+                        let selection = OpenAIAutoRouter.selectPreferredTranscript(
+                            primaryText: primaryTranscript,
+                            primaryModel: selectedModel,
+                            secondaryText: secondaryTranscript,
+                            secondaryModel: autoConfig.secondaryModel,
+                            localeIdentifier: localeIdentifier,
+                            vocabularyHints: vocabularyHints
+                        )
+                        finalTranscript = selection.transcript
+                        RuntimeLogger.log(
+                            "[openai-auto] selected model=\(selection.selectedModel) primaryScore=\(selection.primaryScore) secondaryScore=\(selection.secondaryScore) reason=\(selection.reason)"
+                        )
                     } catch {
-                        continuation.resume(throwing: error)
+                        RuntimeLogger.log(
+                            "[openai-auto] secondary transcription failed model=\(autoConfig.secondaryModel) error=\(error)"
+                        )
                     }
+                } else {
+                    RuntimeLogger.log(
+                        "[openai-auto] skip reroute model=\(selectedModel) risk=\(analysis.riskScore) reasons=\(analysis.reasons.joined(separator: "|"))"
+                    )
                 }
             }
+
             try? FileManager.default.removeItem(at: recordingURL)
-            return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            clearPendingTranscriptionTracking()
+            return finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             persistFailedRecording(audioURL: recordingURL, durationSec: durationSec)
             throw error
@@ -392,7 +519,59 @@ final class SpeechTranscriber {
         }
     }
 
+    private func stopMlxWhisperRecording() async throws -> String {
+        guard let recorder = audioRecorder, let recordingURL = recordedAudioURL else {
+            return ""
+        }
+
+        let durationSec = recorder.currentTime
+        recorder.stop()
+
+        audioRecorder = nil
+        recordedAudioURL = nil
+
+        if durationSec < 0.18 {
+            try? FileManager.default.removeItem(at: recordingURL)
+            return ""
+        }
+
+        let languageCode = Self.mlxWhisperLanguageParam(from: localeIdentifier, isAutoDetect: languageIsAutoDetect)
+        let outputLocale: String? = (languageCode == nil) ? localeIdentifier : nil
+
+        do {
+            let transcript = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let text = try Self.transcribeMlxWhisperAudioFile(
+                            audioURL: recordingURL,
+                            languageCode: languageCode,
+                            outputLocale: outputLocale
+                        )
+                        continuation.resume(returning: text)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            try? FileManager.default.removeItem(at: recordingURL)
+            return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            persistFailedRecording(audioURL: recordingURL, durationSec: durationSec)
+            throw error
+        }
+    }
+
     private func persistFailedRecording(audioURL: URL, durationSec: TimeInterval) {
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            if failedRecordingEntry != nil {
+                RuntimeLogger.log("[retry-audio] skip persist because audio was already preserved for retry")
+            } else {
+                RuntimeLogger.log("[retry-audio] skip persist because source audio file is missing at \(audioURL.path)")
+            }
+            clearPendingTranscriptionTracking()
+            return
+        }
+
         let entry = FailedRecordingStore.save(
             sourceAudioURL: audioURL,
             recognitionEngine: recognitionEngine,
@@ -405,11 +584,13 @@ final class SpeechTranscriber {
         )
         if let entry {
             failedRecordingEntry = entry
+            clearPendingTranscriptionTracking()
             RuntimeLogger.log(
                 "[retry-audio] persisted failed recording path=\(entry.audioFileURL.path) engine=\(entry.recognitionEngineRawValue) durationSec=\(String(format: "%.2f", entry.durationSeconds))"
             )
         } else {
             try? FileManager.default.removeItem(at: audioURL)
+            clearPendingTranscriptionTracking()
             RuntimeLogger.log("[retry-audio] failed to persist failed recording; original audio removed")
         }
     }
@@ -516,7 +697,9 @@ final class SpeechTranscriber {
     private nonisolated static func transcribeOpenAIAudioFile(
         audioURL: URL,
         languageCode: String?,
-        modelOverride: String?
+        modelOverride: String?,
+        prompt: String?,
+        timeout: TimeInterval
     ) throws -> String {
         let env = ProcessInfo.processInfo.environment
         let fileValues = OpenAISettings.loadValues()
@@ -552,6 +735,9 @@ final class SpeechTranscriber {
         if let languageCode, !languageCode.isEmpty {
             appendMultipartField(name: "language", value: languageCode, boundary: boundary, to: &body)
         }
+        if let prompt, !prompt.isEmpty {
+            appendMultipartField(name: "prompt", value: prompt, boundary: boundary, to: &body)
+        }
         appendMultipartFile(
             name: "file",
             filename: audioURL.lastPathComponent,
@@ -564,13 +750,13 @@ final class SpeechTranscriber {
 
         var request = URLRequest(url: endpointURL)
         request.httpMethod = "POST"
-        request.timeoutInterval = 180
+        request.timeoutInterval = timeout
         request.httpBody = body
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (outputData, statusCode) = try performRequest(request, timeout: 180)
+        let (outputData, statusCode) = try performRequest(request, timeout: timeout)
         if !(200...299).contains(statusCode) {
             let message = parseErrorMessage(from: outputData)
             throw AppError.openAITranscriptionFailed(
@@ -599,6 +785,31 @@ final class SpeechTranscriber {
         }
 
         throw AppError.openAITranscriptionFailed("Response has no text field")
+    }
+
+    private nonisolated static func transcribeOpenAIAudioFileAsync(
+        audioURL: URL,
+        languageCode: String?,
+        modelOverride: String?,
+        prompt: String?,
+        timeout: TimeInterval
+    ) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let text = try Self.transcribeOpenAIAudioFile(
+                        audioURL: audioURL,
+                        languageCode: languageCode,
+                        modelOverride: modelOverride,
+                        prompt: prompt,
+                        timeout: timeout
+                    )
+                    continuation.resume(returning: text)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private nonisolated static func resolvedSetting(
@@ -660,6 +871,34 @@ final class SpeechTranscriber {
         default:
             return false
         }
+    }
+
+    private nonisolated static func buildOpenAITranscriptionPrompt(
+        localeIdentifier: String,
+        terminologyHints: [String]
+    ) -> String? {
+        var parts: [String] = ["Transcribe faithfully."]
+
+        if localeIdentifier.lowercased().hasPrefix("zh") {
+            parts.append("Use natural Chinese punctuation and prefer full-width punctuation in Chinese text.")
+            parts.append("Preserve English technical terms in mixed Chinese-English dictation.")
+        } else {
+            parts.append("Preserve spoken punctuation and technical terms exactly when possible.")
+        }
+
+        let normalizedHints = terminologyHints
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !normalizedHints.isEmpty {
+            parts.append("Preferred terms: \(normalizedHints.prefix(18).joined(separator: ", "))")
+        }
+
+        let prompt = parts.joined(separator: " ")
+        guard !prompt.isEmpty else {
+            return nil
+        }
+
+        return prompt.count > 480 ? String(prompt.prefix(480)) : prompt
     }
 
     private nonisolated static func performRequest(_ request: URLRequest, timeout: TimeInterval) throws -> (Data, Int) {
@@ -798,6 +1037,64 @@ final class SpeechTranscriber {
         resolveScript(named: "transcribe_qwen.py")
     }
 
+    private nonisolated static func transcribeMlxWhisperAudioFile(
+        audioURL: URL,
+        languageCode: String?,
+        outputLocale: String? = nil
+    ) throws -> String {
+        guard let scriptURL = resolveMlxWhisperScriptURL() else {
+            throw AppError.mlxWhisperScriptNotFound
+        }
+
+        let process = Process()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        if let pythonURL = resolvePythonExecutable(scriptURL: scriptURL) {
+            process.executableURL = pythonURL
+            process.arguments = [
+                scriptURL.path,
+                "--audio",
+                audioURL.path,
+            ]
+        } else {
+            throw AppError.pythonRuntimeNotFound
+        }
+
+        if let languageCode, !languageCode.isEmpty {
+            process.arguments?.append(contentsOf: ["--language", languageCode])
+        }
+        if let outputLocale, !outputLocale.isEmpty {
+            process.arguments?.append(contentsOf: ["--output-locale", outputLocale])
+        }
+
+        // Ensure Homebrew tools (ffmpeg) are reachable for audio decoding.
+        var env = ProcessInfo.processInfo.environment
+        let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let homebrewPaths = ["/opt/homebrew/bin", "/usr/local/bin"]
+        let missingPaths = homebrewPaths.filter { !currentPath.contains($0) }
+        if !missingPaths.isEmpty {
+            env["PATH"] = (missingPaths + [currentPath]).joined(separator: ":")
+        }
+        process.environment = env
+
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        let (outputText, errorText) = try runSubprocess(process, outputPipe: outputPipe, errorPipe: errorPipe)
+
+        if process.terminationStatus != 0 {
+            let details = errorText.isEmpty ? outputText : errorText
+            throw AppError.mlxWhisperTranscriptionFailed(details)
+        }
+
+        return outputText
+    }
+
+    private nonisolated static func resolveMlxWhisperScriptURL() -> URL? {
+        resolveScript(named: "transcribe_mlx_whisper.py")
+    }
+
     private nonisolated static func resolveWhisperScriptURL() -> URL? {
         resolveScript(named: "transcribe_once.py")
     }
@@ -907,6 +1204,96 @@ final class SpeechTranscriber {
         }
         // For non-Chinese locales, pass just the language prefix.
         return Locale(identifier: localeIdentifier).language.languageCode?.identifier
+    }
+
+    private nonisolated static func mlxWhisperLanguageParam(
+        from localeIdentifier: String,
+        isAutoDetect: Bool
+    ) -> String? {
+        if isAutoDetect { return nil }
+        let lowercased = localeIdentifier.lowercased()
+        if lowercased.isEmpty { return nil }
+        // Pass full locale for zh variants so Python can distinguish Hant/Hans.
+        if lowercased.hasPrefix("zh") {
+            return localeIdentifier
+        }
+        // For non-Chinese locales, pass just the language prefix.
+        return Locale(identifier: localeIdentifier).language.languageCode?.identifier
+    }
+
+    private nonisolated static func resolvedOpenAILanguageCodeHint(
+        localeIdentifier: String,
+        environment: [String: String],
+        fileValues: [String: String]
+    ) -> String? {
+        let mode = resolvedSetting(
+            key: "VERBATIMFLOW_OPENAI_LANGUAGE_HINT_MODE",
+            environment: environment,
+            fileValues: fileValues
+        )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "auto"
+
+        switch mode {
+        case "off", "none", "disabled":
+            return nil
+        case "force", "always":
+            return whisperLanguageCode(from: localeIdentifier)
+        case "auto":
+            let hinted = whisperLanguageCode(from: localeIdentifier)
+            if hinted == "zh" {
+                return nil
+            }
+            return hinted
+        default:
+            return whisperLanguageCode(from: localeIdentifier)
+        }
+    }
+
+    private nonisolated static func resolvedWhisperProcessTimeoutSeconds() -> TimeInterval {
+        let env = ProcessInfo.processInfo.environment
+        let fileValues = OpenAISettings.loadValues()
+        let raw = (env["VERBATIMFLOW_WHISPER_PROCESS_TIMEOUT_SECONDS"]
+            ?? fileValues["VERBATIMFLOW_WHISPER_PROCESS_TIMEOUT_SECONDS"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw, let seconds = Double(raw), seconds >= 15, seconds <= 600 else {
+            return 120
+        }
+        return seconds
+    }
+
+    private nonisolated static func resolvedOpenAITranscriptionTimeoutSeconds(isSecondary: Bool) -> TimeInterval {
+        let env = ProcessInfo.processInfo.environment
+        let fileValues = OpenAISettings.loadValues()
+
+        let primaryRaw = (env["VERBATIMFLOW_OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS"]
+            ?? fileValues["VERBATIMFLOW_OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let primaryTimeout = parseTimeoutSeconds(primaryRaw, defaultValue: 45)
+
+        guard isSecondary else {
+            return primaryTimeout
+        }
+
+        let secondaryRaw = (env["VERBATIMFLOW_OPENAI_SECONDARY_TRANSCRIPTION_TIMEOUT_SECONDS"]
+            ?? fileValues["VERBATIMFLOW_OPENAI_SECONDARY_TRANSCRIPTION_TIMEOUT_SECONDS"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return parseTimeoutSeconds(secondaryRaw, defaultValue: min(primaryTimeout, 20))
+    }
+
+    private nonisolated static func parseTimeoutSeconds(_ rawValue: String?, defaultValue: TimeInterval) -> TimeInterval {
+        guard let rawValue, let seconds = Double(rawValue), seconds >= 15, seconds <= 600 else {
+            return defaultValue
+        }
+        return seconds
+    }
+
+    private func trackPendingTranscription(audioURL: URL, durationSec: TimeInterval) {
+        pendingTranscriptionAudioURL = audioURL
+        pendingTranscriptionDurationSeconds = durationSec
+    }
+
+    private func clearPendingTranscriptionTracking() {
+        pendingTranscriptionAudioURL = nil
+        pendingTranscriptionDurationSeconds = nil
     }
 
     private func resolveSpeechAuthorization() async -> Bool {

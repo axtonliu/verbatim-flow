@@ -6,6 +6,7 @@ final class AppPreferences {
     private enum Key {
         static let mode = "verbatimflow.mode"
         static let hotkey = "verbatimflow.hotkey"
+        static let clarifyHotkey = "verbatimflow.clarifyHotkey"
         static let languageSelection = "verbatimflow.languageSelection"
         static let recognitionEngine = "verbatimflow.recognitionEngine"
         static let whisperModel = "verbatimflow.whisperModel"
@@ -39,6 +40,17 @@ final class AppPreferences {
 
     func saveHotkey(_ hotkey: Hotkey) {
         defaults.set(hotkey.display.lowercased(), forKey: Key.hotkey)
+    }
+
+    func loadClarifyHotkey() -> Hotkey? {
+        guard let combo = defaults.string(forKey: Key.clarifyHotkey) else {
+            return nil
+        }
+        return try? HotkeyParser.parse(combo: combo)
+    }
+
+    func saveClarifyHotkey(_ hotkey: Hotkey) {
+        defaults.set(hotkey.display.lowercased(), forKey: Key.clarifyHotkey)
     }
 
     func loadLanguageSelection() -> String? {
